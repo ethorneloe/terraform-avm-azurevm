@@ -1,13 +1,13 @@
 ###############################################################################
-# science-vm
+# science-web-01
 #
-# Research & Science team VM — compute workloads, data analysis, lab tooling.
+# Research & Science web VM — data analysis, lab tooling, research compute.
 # Copy this file and rename it to add another VM for the Science team.
 # All values specific to this VM are defined in the locals block below.
 ###############################################################################
 
 locals {
-  science_vm = {
+  science_web_01 = {
     vnet_address_space      = "10.1.0.0/16"
     subnet_prefix           = "10.1.1.0/24"
     vm_size                 = "Standard_D4s_v3" # memory-optimised for data workloads
@@ -24,18 +24,18 @@ locals {
     enable_boot_diagnostics = true
     zone                    = "1"   # pin to zone 1 for data-locality
     enable_public_ip        = false
-    allowed_cidrs           = []    # set to specific CIDRs (e.g. ["203.0.113.10/32"]) to enable SSH/RDP access
+    allowed_cidrs           = []    # set to specific CIDRs (e.g. ["203.0.113.10/32"]) to enable SSH access
   }
 }
 
-module "science_vm" {
+module "science_web_01" {
   source = "../../../../modules/vm"
 
-  name                = "science-vm"
+  name                = "science-web-01"
   environment         = var.environment
   location            = "eastus"
   resource_group_name = "rg-science-vms"
   tags                = merge(var.tags, { team = "science", cost-center = "research" })
-  config              = local.science_vm
+  config              = local.science_web_01
   admin_password      = var.admin_password
 }

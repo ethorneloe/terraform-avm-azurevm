@@ -1,13 +1,13 @@
 ###############################################################################
-# bizapps-vm
+# bizapps-web-01
 #
-# Business Applications team VM — ERP, CRM, and internal tooling workloads.
+# Business Applications web VM — ERP, CRM, and internal tooling workloads.
 # Copy this file and rename it to add another VM for the BizApps team.
 # All values specific to this VM are defined in the locals block below.
 ###############################################################################
 
 locals {
-  bizapps_vm = {
+  bizapps_web_01 = {
     vnet_address_space      = "10.2.0.0/16"
     subnet_prefix           = "10.2.1.0/24"
     vm_size                 = "Standard_B4ms"   # burstable — steady-state business apps
@@ -28,14 +28,14 @@ locals {
   }
 }
 
-module "bizapps_vm" {
+module "bizapps_web_01" {
   source = "../../../../modules/vm"
 
-  name                = "bizapps-vm"
+  name                = "bizapps-web-01"
   environment         = var.environment
   location            = "westeurope"
   resource_group_name = "rg-bizapps-vms"
   tags                = merge(var.tags, { team = "bizapps", cost-center = "operations" })
-  config              = local.bizapps_vm
+  config              = local.bizapps_web_01
   admin_password      = var.admin_password
 }
