@@ -1,0 +1,105 @@
+###############################################################################
+# Terraform Apply – runs on push to main for changed VM directories
+#
+# Required repository secrets / variables: (same as terraform-plan.yml)
+#   AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
+#   TFSTATE_RESOURCE_GROUP, TFSTATE_STORAGE_ACCOUNT, TFSTATE_CONTAINER
+#
+# Configure the federated credential subject:
+#   repo:<org>/<repo>:ref:refs/heads/main
+###############################################################################
+
+name: Terraform Apply
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "infrastructure/**"
+      - ".github/workflows/terraform-apply.yml"
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  TF_VERSION: "1.9.8"
+  ARM_USE_OIDC: "true"
+  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+jobs:
+  detect-changes:
+    name: Detect changed VM directories
+    runs-on: ubuntu-latest
+    outputs:
+      vm_dirs: ${{ steps.changes.outputs.vm_dirs }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Identify changed infrastructure directories
+        id: changes
+        run: |
+          CHANGED=$(git diff --name-only HEAD~1 HEAD \
+            | grep '^infrastructure/virtual-machines/' \
+            | awk -F'/' '{print $1"/"$2"/"$3}' \
+            | sort -u)
+          if [ -z "$CHANGED" ]; then
+            echo "vm_dirs=[]" >> "$GITHUB_OUTPUT"
+          else
+            JSON=$(echo "$CHANGED" | jq -R -s -c 'split("\n") | map(select(length > 0))')
+            echo "vm_dirs=$JSON" >> "$GITHUB_OUTPUT"
+          fi
+
+  terraform-apply:
+    name: Apply – ${{ matrix.vm_dir }}
+    needs: detect-changes
+    if: needs.detect-changes.outputs.vm_dirs != '[]'
+    runs-on: ubuntu-latest
+    environment: production
+    strategy:
+      # Apply VMs sequentially to avoid state lock conflicts
+      max-parallel: 1
+      matrix:
+        vm_dir: ${{ fromJson(needs.detect-changes.outputs.vm_dirs) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Terraform Init
+        working-directory: ${{ matrix.vm_dir }}
+        run: |
+          VM_NAME=$(basename "${{ matrix.vm_dir }}")
+          terraform init \
+            -backend-config="resource_group_name=${{ secrets.TFSTATE_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ secrets.TFSTATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ secrets.TFSTATE_CONTAINER }}" \
+            -backend-config="key=${VM_NAME}.terraform.tfstate"
+
+      - name: Terraform Plan
+        working-directory: ${{ matrix.vm_dir }}
+        run: terraform plan -out=tfplan
+        env:
+          TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Terraform Apply
+        working-directory: ${{ matrix.vm_dir }}
+        run: terraform apply -auto-approve tfplan
