@@ -4,6 +4,46 @@ resource "azurerm_resource_group" "this" {
   tags     = var.tags
 }
 
+# https://registry.terraform.io/modules/Azure/avm-res-network-networksecuritygroup/azurerm
+module "nsg" {
+  count = var.config.enable_public_ip ? 1 : 0
+
+  source  = "Azure/avm-res-network-networksecuritygroup/azurerm"
+  version = "~> 0.5"
+
+  name                = "nsg-${var.name}-${var.environment}"
+  location            = azurerm_resource_group.this.location
+  resource_group_name = azurerm_resource_group.this.name
+  enable_telemetry    = true
+
+  security_rules = {
+    allow_inbound = {
+      access                     = "Allow"
+      direction                  = "Inbound"
+      name                       = var.config.os_type == "Windows" ? "allow-rdp" : "allow-ssh"
+      priority                   = 100
+      protocol                   = "Tcp"
+      destination_port_range     = var.config.os_type == "Windows" ? "3389" : "22"
+      source_address_prefixes    = var.config.allowed_cidrs
+      destination_address_prefix = "*"
+      source_port_range          = "*"
+    }
+  }
+}
+
+# https://registry.terraform.io/modules/Azure/avm-res-network-publicipaddress/azurerm
+module "pip" {
+  count = var.config.enable_public_ip ? 1 : 0
+
+  source  = "Azure/avm-res-network-publicipaddress/azurerm"
+  version = "~> 0.2"
+
+  name                = "pip-${var.name}-${var.environment}"
+  location            = azurerm_resource_group.this.location
+  resource_group_name = azurerm_resource_group.this.name
+  enable_telemetry    = true
+}
+
 # https://registry.terraform.io/modules/Azure/avm-res-network-virtualnetwork/azurerm
 module "vnet" {
   source  = "Azure/avm-res-network-virtualnetwork/azurerm"
@@ -17,8 +57,9 @@ module "vnet" {
 
   subnets = {
     snet_vms = {
-      name             = "snet-vms"
-      address_prefixes = [var.config.subnet_prefix]
+      name                      = "snet-vms"
+      address_prefixes          = [var.config.subnet_prefix]
+      network_security_group_id = var.config.enable_public_ip ? module.nsg[0].resource_id : null
     }
   }
 }
@@ -50,6 +91,7 @@ module "vm" {
         ipconfig0 = {
           name                          = "ipconfig0"
           private_ip_subnet_resource_id = module.vnet.subnets["snet_vms"].resource_id
+          public_ip_address_resource_id = var.config.enable_public_ip ? module.pip[0].resource_id : null
         }
       }
     }
@@ -61,7 +103,8 @@ module "vm" {
   }
 
   admin_username                  = var.config.admin_username
-  generate_admin_password_or_key  = true
+  generate_admin_password_or_key  = var.admin_password == null || var.config.disable_password_auth
+  admin_password                  = var.config.disable_password_auth ? null : var.admin_password
   disable_password_authentication = var.config.disable_password_auth
 
   managed_identities = var.config.enable_system_identity ? { system_assigned = true } : null

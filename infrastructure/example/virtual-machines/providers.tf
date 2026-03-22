@@ -25,7 +25,8 @@ terraform {
 provider "azurerm" {
   features {}
   resource_provider_registrations = "none"
-  # subscription_id is supplied via ARM_SUBSCRIPTION_ID (GitHub secret → workflow env var)
+  # subscription_id is supplied via ARM_SUBSCRIPTION_ID, resolved from
+  # infrastructure/subscriptions.json by the CI/CD workflow at runtime.
 }
 
 provider "azapi" {}

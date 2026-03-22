@@ -12,3 +12,8 @@ output "private_ip" {
   description = "Private IP address of the virtual machine."
   value       = module.vm.network_interfaces["nic0"].private_ip_address
 }
+
+output "public_ip_address" {
+  description = "Public IP address of the virtual machine. Null when enable_public_ip is false."
+  value       = var.config.enable_public_ip ? module.pip[0].public_ip_address : null
+}

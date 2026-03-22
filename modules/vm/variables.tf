@@ -37,5 +37,14 @@ variable "config" {
     enable_system_identity  = bool
     enable_boot_diagnostics = bool
     zone                    = optional(string)
+    enable_public_ip        = optional(bool, false)
+    allowed_cidrs           = optional(list(string), ["*"])
   })
+}
+
+variable "admin_password" {
+  type        = string
+  description = "Admin password for the VM. When provided and password auth is enabled, disables auto-generation. Ignored when disable_password_auth is true (SSH key auth is used instead)."
+  sensitive   = true
+  default     = null
 }

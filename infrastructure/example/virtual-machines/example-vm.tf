@@ -21,16 +21,19 @@ locals {
     disable_password_auth   = true
     enable_system_identity  = false
     enable_boot_diagnostics = true
-    zone                    = null # "1", "2", or "3" for zonal deployments
+    zone                    = null  # "1", "2", or "3" for zonal deployments
+    enable_public_ip        = false # set to true to attach a public IP and open SSH/RDP
+    allowed_cidrs           = ["*"] # restrict to known IPs in production
   }
 }
 
 module "example_vm" {
   source = "../../../../modules/vm"
 
-  name        = "example-vm"
-  environment = var.environment
-  location    = var.location
-  tags        = var.tags
-  config      = local.example_vm
+  name           = "example-vm"
+  environment    = var.environment
+  location       = var.location
+  tags           = var.tags
+  config         = local.example_vm
+  admin_password = var.admin_password
 }
