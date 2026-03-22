@@ -141,7 +141,7 @@ required GitHub environments, secrets, and OIDC requirements.
 ### 5. Push a branch
 
 Push to any non-main branch and the workflow deploys to **dev** automatically.
-Open a PR to run a plan-only check against **test**. Merge to main to deploy to
+Open a PR to plan and apply to **test**. Merge to main to deploy to
 **prod** (pending reviewer approval).
 
 ---
@@ -351,5 +351,5 @@ any scale.
 
 1. Fork the repository and create a feature branch
 2. Copy `templates/vm.tf` to add a new VM, adjust the locals block
-3. Open a pull request — the test environment plan runs automatically
+3. Open a pull request — the test environment plan and apply run automatically
 4. Merge after review — the prod workflow fires and waits for approval before applying

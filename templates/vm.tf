@@ -106,6 +106,11 @@ module "<vm_name>" {
 #   value       = module.<vm_name>.resource_id
 # }
 #
+# output "<vm_name>_name" {
+#   description = "Name of <vm-name>."
+#   value       = module.<vm_name>.name
+# }
+#
 # output "<vm_name>_private_ip" {
 #   description = "Private IP address of <vm-name>."
 #   value       = module.<vm_name>.network_interfaces["nic0"].private_ip_address
