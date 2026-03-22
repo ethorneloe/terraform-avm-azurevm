@@ -18,10 +18,13 @@
 #   infra-prod should have a required-reviewers protection rule.
 #
 # Subscription routing:
-#   Azure subscription IDs are NOT secrets. They are stored per-BU in
-#   infrastructure/subscriptions.json and injected at runtime. To add a new BU,
-#   add its folder and a corresponding entry in subscriptions.json – no GitHub
-#   environment setup required.
+#   Each GitHub environment holds an Actions variable named SUBSCRIPTION_MAP.
+#   The value is a JSON object mapping BU names to the subscription IDs used
+#   by that environment, e.g.:
+#     infra-nonprod → {"example":{"dev":"<id>","test":"<id>"}}
+#     infra-prod    → {"example":{"prod":"<id>"}}
+#   Prod subscription IDs are scoped to infra-prod only. To add a new BU,
+#   add its folder and extend SUBSCRIPTION_MAP in each environment.
 #
 # Backend / variable files:
 #   infrastructure/<bu>/virtual-machines/env/<tier>/<tier>.tfbackend
@@ -103,13 +106,11 @@ jobs:
           if [ -z "$DIRS" ]; then
             echo "matrix=[]" >> $GITHUB_OUTPUT
           else
-            ENV_SUFFIX="${{ steps.set-env.outputs.env_suffix }}"
-            SUBSCRIPTION_MAP=$(cat infrastructure/subscriptions.json)
-
-            # Build a JSON array of {directory, bu, subscription_id} objects
+            # Build a JSON array of {directory, bu} objects.
+            # Subscription IDs are resolved later from vars.SUBSCRIPTION_MAP
+            # scoped to the target GitHub environment.
             MATRIX=$(printf '%s\n' $DIRS \
-              | jq -R --argjson subs "$SUBSCRIPTION_MAP" --arg tier "$ENV_SUFFIX" \
-                '{directory: ., bu: (split("/") | .[1]), subscription_id: ($subs[(split("/") | .[1])][$tier] // "")}' \
+              | jq -R '{directory: ., bu: (split("/") | .[1])}' \
               | jq -sc .)
             echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
           fi
@@ -122,12 +123,13 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJson(needs.detect.outputs.matrix) }}
+    environment: ${{ needs.detect.outputs.github_environment }}
     uses: ./.github/workflows/terraform-orchestration.yml
     secrets: inherit
     concurrency: ${{ matrix.directory }}-${{ needs.detect.outputs.env_suffix }}
     with:
       environment: "${{ needs.detect.outputs.github_environment }}"
-      subscription_id: "${{ matrix.subscription_id }}"
+      subscription_id: "${{ fromJson(vars.SUBSCRIPTION_MAP)[matrix.bu][needs.detect.outputs.env_suffix] }}"
       run_tf_apply: true
       working_directory: "./${{ matrix.directory }}"
       tfbackend_filepath: "./env/${{ needs.detect.outputs.env_suffix }}/${{ needs.detect.outputs.env_suffix }}.tfbackend"

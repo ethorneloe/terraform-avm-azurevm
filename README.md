@@ -57,7 +57,6 @@ terraform-avm-azurevm/
 │       └── terraform-apply.yml                  # Reusable – apply pre-approved plan
 │
 ├── infrastructure/
-│   ├── subscriptions.json          # Maps each BU + tier to its Azure subscription ID
 │   └── example/                    # One folder per business unit (BU)
 │       └── virtual-machines/       # Terraform root module for this BU's VMs
 │           ├── providers.tf        # Terraform version, providers, empty backend block
@@ -99,8 +98,8 @@ infrastructure boilerplate to copy.
 Each BU has its own Terraform root module (`infrastructure/<bu>/virtual-machines/`),
 its own state file, and its own Azure subscription. The `env/` folder provides the
 backend location and variable values per environment tier. Subscription IDs are kept
-centrally in `infrastructure/subscriptions.json` and injected at runtime — no
-per-BU GitHub environment setup is needed when adding a new BU.
+in the `SUBSCRIPTION_MAP` Actions variable on each GitHub environment and injected at
+runtime — no per-BU GitHub environment setup is needed when adding a new BU.
 
 ---
 
@@ -131,8 +130,8 @@ tags = {
 ```
 
 > `subscription_id` is **not** in the tfvars file — it is read from
-> `infrastructure/subscriptions.json` at runtime and injected into Terraform
-> as `ARM_SUBSCRIPTION_ID`.
+> the `SUBSCRIPTION_MAP` Actions variable on the target GitHub environment
+> and injected into Terraform as `ARM_SUBSCRIPTION_ID`.
 
 > The `env/` files **are** committed to the repo — they contain non-sensitive
 > configuration only. Never put passwords or secrets directly in these files.
@@ -150,28 +149,29 @@ container_name       = "tfstate"
 key                  = "virtual-machines-dev.terraform.tfstate"
 ```
 
-### 4. Add the BU to subscriptions.json
+### 4. Add the BU to SUBSCRIPTION_MAP
 
-Add the new BU's Azure subscription IDs to `infrastructure/subscriptions.json`:
+In **Settings → Environments → \<environment\> → Variables**, add or update the
+`SUBSCRIPTION_MAP` variable on each GitHub environment:
 
+**`infra-nonprod`**
 ```json
 {
-  "example": {
-    "dev":  "<dev-subscription-id>",
-    "test": "<test-subscription-id>",
-    "prod": "<prod-subscription-id>"
-  },
-  "<new-bu>": {
-    "dev":  "<dev-subscription-id>",
-    "test": "<test-subscription-id>",
-    "prod": "<prod-subscription-id>"
-  }
+  "example":   {"dev": "<dev-subscription-id>",  "test": "<test-subscription-id>"},
+  "<new-bu>":  {"dev": "<dev-subscription-id>",  "test": "<test-subscription-id>"}
 }
 ```
 
-Subscription IDs are resource identifiers, not secrets — committing them to the
-repo is safe. The workflow reads this file at runtime to route each BU matrix job
-to the correct Azure subscription.
+**`infra-prod`**
+```json
+{
+  "example":   {"prod": "<prod-subscription-id>"},
+  "<new-bu>":  {"prod": "<prod-subscription-id>"}
+}
+```
+
+The workflow resolves the subscription ID from the environment-scoped variable at
+runtime. Prod subscription IDs are only accessible to jobs running in `infra-prod`.
 
 ### 5. Configure GitHub environments and secrets
 
@@ -239,20 +239,9 @@ cp infrastructure/example/virtual-machines/outputs.tf    infrastructure/<bu-name
 # 4. Add at least one <vm-name>.tf file (copy templates/vm.tf)
 ```
 
-Then add the BU's subscription IDs to `infrastructure/subscriptions.json`:
-
-```json
-{
-  "example": { ... },
-  "<bu-name>": {
-    "dev":  "<dev-subscription-id>",
-    "test": "<test-subscription-id>",
-    "prod": "<prod-subscription-id>"
-  }
-}
-```
-
-No GitHub environment or secret changes are needed. The trigger workflow
+Then add the BU's subscription IDs to the `SUBSCRIPTION_MAP` variable on each
+GitHub environment (see [Getting Started step 4](#4-add-the-bu-to-subscription_map)).
+No other GitHub environment or secret changes are needed. The trigger workflow
 automatically detects pushes to the new folder and routes each tier to the
 correct subscription via the map.
 
@@ -284,8 +273,8 @@ GitHub environment are determined by the git event:
 | Pull request to `main` | `test` | `infra-nonprod` | Yes |
 | Push / merge to `main` | `prod` | `infra-prod` | Yes — requires reviewer approval |
 
-The subscription ID for each BU + tier combination is read from
-`infrastructure/subscriptions.json` at runtime and does not come from GitHub secrets.
+The subscription ID for each BU + tier combination is read from the `SUBSCRIPTION_MAP`
+Actions variable on the target GitHub environment and does not come from GitHub secrets.
 
 ### GitHub Environments
 
@@ -301,7 +290,7 @@ approval. No new environments are needed when adding BUs.
 
 ### GitHub Secrets
 
-Set these secrets on **each** environment in **Settings → Secrets and variables → Actions**:
+Set these secrets on **each** environment in **Settings → Environments → \<environment\> → Secrets**:
 
 | Secret | Value |
 |--------|-------|
@@ -310,8 +299,16 @@ Set these secrets on **each** environment in **Settings → Secrets and variable
 | `VM_ADMIN_PASSWORD` | Optional – admin password for VMs with password auth enabled. When absent, a password or SSH key is auto-generated by the AVM module. Rotating this secret and running Terraform resets the VM password. |
 | `TF_LOG_LEVEL` | Optional – Terraform log verbosity (`INFO`, `DEBUG`, or blank) |
 
-Subscription IDs are **not** secrets and are not stored in GitHub — they live in
-`infrastructure/subscriptions.json`.
+### GitHub Variables
+
+Set this variable on **each** environment in **Settings → Environments → \<environment\> → Variables**:
+
+| Variable | Value |
+|----------|-------|
+| `SUBSCRIPTION_MAP` | JSON object mapping BU names to the subscription IDs used by this environment (see [Getting Started step 4](#4-add-the-bu-to-subscription_map)) |
+
+Subscription IDs are not secrets — they are stored as plain Actions variables,
+scoped per environment so prod IDs are never accessible to non-prod jobs.
 
 ### OIDC authentication
 
@@ -340,7 +337,7 @@ VM-specific settings (size, image, CIDRs) are defined as locals inside each
 
 > `subscription_id` is not a Terraform variable — it is provided to the azurerm
 > provider via the `ARM_SUBSCRIPTION_ID` environment variable, which the workflow
-> resolves from `infrastructure/subscriptions.json` using the BU name and tier.
+> resolves from `SUBSCRIPTION_MAP` (GitHub environment variable) using the BU name and tier.
 
 ---
 
@@ -436,9 +433,9 @@ valuable, but still managed by one team.
 **Cons:** Adding a category requires a small workflow change.
 
 **Multiple subscriptions:** If different categories target different Azure
-subscriptions, add entries for each category to `infrastructure/subscriptions.json`.
-The detect job enriches the matrix with the correct subscription ID and injects it
-at runtime — no additional GitHub secrets or environments are needed.
+subscriptions, add entries for each category to the `SUBSCRIPTION_MAP` variable on
+each GitHub environment. The workflow resolves the correct subscription ID at runtime
+from the environment-scoped variable — no additional secrets or environments are needed.
 
 ---
 
@@ -461,6 +458,6 @@ any scale.
 
 1. Fork the repository and create a feature branch
 2. To add a VM: copy `templates/vm.tf` into the relevant BU folder, adjust the locals block (see [Adding a New VM](#adding-a-new-vm))
-3. To add a BU: create the folder structure and add an entry to `subscriptions.json` (see [Adding a New Business Unit](#adding-a-new-business-unit))
+3. To add a BU: create the folder structure and update `SUBSCRIPTION_MAP` on each GitHub environment (see [Adding a New Business Unit](#adding-a-new-business-unit))
 4. Open a pull request — the test environment plan and apply run automatically
 5. Merge after review — the prod workflow fires and waits for approval before applying

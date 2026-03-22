@@ -1,7 +1,0 @@
-{
-  "example": {
-    "dev":  "<dev-subscription-id>",
-    "test": "<test-subscription-id>",
-    "prod": "<prod-subscription-id>"
-  }
-}
