@@ -7,7 +7,7 @@
 #
 # Environment routing:
 #   dev   → non-main branch pushes   (plan + apply)
-#   test  → pull requests to main    (plan only, security analysis enabled)
+#   test  → pull requests to main    (plan + apply, security analysis enabled)
 #   prod  → push to main             (plan + apply, security analysis enabled)
 #
 # Prerequisites:
@@ -63,7 +63,7 @@ jobs:
     concurrency: test_infra
     with:
       environment: "test"
-      run_tf_apply: false
+      run_tf_apply: true
       working_directory: ./infrastructure/virtual-machines
       tfbackend_filepath: ./env/test/test.tfbackend
       tfvars_filepath: ./env/test/test.tfvars

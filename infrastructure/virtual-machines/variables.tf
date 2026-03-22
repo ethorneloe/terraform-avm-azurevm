@@ -4,11 +4,6 @@
 # <vm-name>.tf file using var.environment to construct environment-aware names.
 ###############################################################################
 
-variable "subscription_id" {
-  type        = string
-  description = "Azure subscription ID where resources will be deployed."
-}
-
 variable "location" {
   type        = string
   description = "Azure region for all resources, e.g. \"uksouth\"."
