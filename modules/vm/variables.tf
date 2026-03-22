@@ -44,7 +44,7 @@ variable "config" {
     enable_boot_diagnostics = bool
     zone                    = optional(string)
     enable_public_ip        = optional(bool, false)
-    allowed_cidrs           = optional(list(string), ["*"])
+    allowed_cidrs           = optional(list(string), [])
   })
 }
 
