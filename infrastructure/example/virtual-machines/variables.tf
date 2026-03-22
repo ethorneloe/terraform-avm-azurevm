@@ -1,7 +1,7 @@
 ###############################################################################
 # Shared variables – apply to all VMs in this root module.
-# VM-specific settings (name, size, image, etc.) are hardcoded in each
-# <vm-name>.tf file using var.environment to construct environment-aware names.
+# VM-specific settings (size, image, CIDRs, etc.) are defined as locals in
+# each <vm-name>.tf file and passed to the shared modules/vm child module.
 ###############################################################################
 
 variable "location" {

@@ -10,6 +10,10 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.6"
     }
+    azapi = {
+      source  = "azure/azapi"
+      version = "~> 2.0"
+    }
   }
 
   # Backend configuration is supplied at terraform init time via -backend-config.
@@ -23,3 +27,6 @@ provider "azurerm" {
   resource_provider_registrations = "none"
   # subscription_id is supplied via ARM_SUBSCRIPTION_ID (GitHub secret → workflow env var)
 }
+
+provider "azapi" {}
+

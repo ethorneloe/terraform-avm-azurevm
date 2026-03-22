@@ -3,9 +3,10 @@
 A hands-on lab showing how to deploy Azure Virtual Machines using the
 [Azure Verified Module (AVM) for Compute: Virtual Machine](https://registry.terraform.io/modules/Azure/avm-res-compute-virtualmachine/azurerm).
 
-All VMs live in a single Terraform root module under `infrastructure/virtual-machines/`.
-Adding a VM means adding one `.tf` file. Everything else — planning, applying,
-state management — is handled by the CI/CD workflows.
+VMs are grouped by business unit (BU) under `infrastructure/<bu>/virtual-machines/`.
+Adding a VM means adding one `.tf` file to the relevant BU folder. Adding a new BU
+means adding one folder. Everything else — planning, applying, state management —
+is handled by the CI/CD workflows.
 
 ---
 
@@ -15,11 +16,12 @@ state management — is handled by the CI/CD workflows.
 2. [Repository Layout](#repository-layout)
 3. [Getting Started](#getting-started)
 4. [Adding a New VM](#adding-a-new-vm)
-5. [CI/CD with GitHub Actions](#cicd-with-github-actions)
-6. [Variable Reference](#variable-reference)
-7. [Common Image References](#common-image-references)
-8. [Scaling Strategies](#scaling-strategies)
-9. [Contributing](#contributing)
+5. [Adding a New Business Unit](#adding-a-new-business-unit)
+6. [CI/CD with GitHub Actions](#cicd-with-github-actions)
+7. [Variable Reference](#variable-reference)
+8. [Common Image References](#common-image-references)
+9. [Scaling Strategies](#scaling-strategies)
+10. [Contributing](#contributing)
 
 ---
 
@@ -55,35 +57,47 @@ terraform-avm-azurevm/
 │       └── terraform-apply.yml                  # Reusable – apply pre-approved plan
 │
 ├── infrastructure/
-│   └── virtual-machines/           # Single Terraform root module – all VMs live here
-│       ├── providers.tf            # Terraform version, providers, empty backend block
-│       ├── variables.tf            # Shared variables (subscription_id, location, environment, tags)
-│       ├── outputs.tf              # Outputs for all VMs
-│       ├── example-vm.tf           # One file per VM – add a new .tf file to add a VM
-│       └── env/
-│           ├── dev/
-│           │   ├── dev.tfbackend   # Backend config for dev state file
-│           │   └── dev.tfvars      # Shared variable values for dev
-│           ├── test/
-│           │   ├── test.tfbackend
-│           │   └── test.tfvars
-│           └── prod/
-│               ├── prod.tfbackend
-│               └── prod.tfvars
+│   └── example/                    # One folder per business unit (BU)
+│       └── virtual-machines/       # Terraform root module for this BU's VMs
+│           ├── providers.tf        # Terraform version, providers, empty backend block
+│           ├── variables.tf        # Shared variables (location, environment, tags)
+│           ├── outputs.tf          # Outputs for all VMs in this BU
+│           ├── example-vm.tf       # One file per VM – locals + child module call
+│           └── env/
+│               ├── dev/
+│               │   ├── dev.tfbackend   # Backend config for dev state file
+│               │   └── dev.tfvars      # Shared variable values for dev
+│               ├── test/
+│               │   ├── test.tfbackend
+│               │   └── test.tfvars
+│               └── prod/
+│                   ├── prod.tfbackend
+│                   └── prod.tfvars
+│
+├── modules/
+│   └── vm/                         # Shared child module – all resource logic lives here
+│       ├── main.tf                 # Resource group, AVM vnet module, AVM VM module
+│       ├── variables.tf            # Inputs: name, environment, location, tags, config
+│       └── outputs.tf              # resource_id, name, private_ip
 │
 ├── templates/
-│   └── vm.tf                       # Copy to infrastructure/virtual-machines/<vm-name>.tf
+│   └── vm.tf                       # Copy to infrastructure/<bu>/virtual-machines/<vm-name>.tf
 │
 ├── .gitignore
 ├── LICENSE
 └── README.md
 ```
 
-**One file per VM, one Terraform root module for all VMs.**
-VM-specific values (name, size, image, networking CIDRs) are hardcoded as locals
-inside each `<vm-name>.tf` file, with `var.environment` used to construct
-environment-aware resource names. The shared `env/` folder provides the backend
-location and cross-cutting values (subscription ID, tags) per environment.
+**One file per VM. One folder per business unit. One shared child module for all resource logic.**
+
+Each `<vm-name>.tf` file contains only a `locals` block (pure VM-specific data) and a
+single call to the shared `modules/vm` child module. The child module owns the resource
+group, virtual network, and VM — keeping per-VM files to ~30 lines of config, with no
+infrastructure boilerplate to copy.
+
+Each BU has its own Terraform root module (`infrastructure/<bu>/virtual-machines/`),
+its own state file, and its own Azure subscription credentials. The `env/` folder
+provides the backend location and variable values per environment tier.
 
 ---
 
@@ -149,21 +163,57 @@ Open a PR to plan and apply to **test**. Merge to main to deploy to
 ## Adding a New VM
 
 ```bash
-# 1. Copy the template file
-cp templates/vm.tf infrastructure/virtual-machines/<new-vm-name>.tf
+# 1. Copy the template into the relevant BU folder
+cp templates/vm.tf infrastructure/<bu>/virtual-machines/<new-vm-name>.tf
 
-# 2. Replace all occurrences of <vm-name> and <vm_name> in the file
+# 2. Replace all occurrences of <vm-name> and <vm_name> in the new file
 #    <vm-name>  → kebab-case name used in Azure resource names  (e.g. web-server)
 #    <vm_name>  → snake_case name used in HCL identifiers       (e.g. web_server)
 
-# 3. Adjust the locals block – size, image, CIDR, etc.
+# 3. Adjust the locals block – size, image, CIDRs, etc.
 
-# 4. Add matching output blocks to outputs.tf
-#    (the template file shows the exact blocks to add as comments at the bottom)
+# 4. Add the three output blocks shown at the bottom of the template to outputs.tf
 ```
 
-Then push the branch — the workflow picks up the new file automatically and
-plans/applies to dev. No changes to workflows, backends, or variable files needed.
+The resulting file is ~30 lines: a `locals` block with VM-specific data and a single
+`module` call. All resource and networking logic is handled by `modules/vm`.
+
+Resource names are derived automatically from the VM name and environment:
+
+| Resource | Name pattern |
+|----------|-------------|
+| Resource group | `rg-<vm-name>-<env>` |
+| Virtual network | `vnet-<vm-name>-<env>` |
+| VM | `<vm-name>-<env>` |
+
+Push the branch — the workflow detects the changed BU folder and plans/applies to dev.
+No changes to workflows, backends, or variable files needed.
+
+---
+
+## Adding a New Business Unit
+
+```bash
+# 1. Create the BU folder structure
+mkdir -p infrastructure/<bu-name>/virtual-machines/env/{dev,test,prod}
+
+# 2. Copy the providers, variables, and outputs files from an existing BU
+cp infrastructure/example/virtual-machines/providers.tf  infrastructure/<bu-name>/virtual-machines/
+cp infrastructure/example/virtual-machines/variables.tf  infrastructure/<bu-name>/virtual-machines/
+cp infrastructure/example/virtual-machines/outputs.tf    infrastructure/<bu-name>/virtual-machines/
+
+# 3. Create env/<tier>/<tier>.tfbackend and env/<tier>/<tier>.tfvars for each tier
+#    pointing to the BU's Azure Storage Account and subscription
+
+# 4. Add at least one <vm-name>.tf file (copy templates/vm.tf)
+```
+
+Then create three GitHub environments — `<bu-name>-dev`, `<bu-name>-test`,
+`<bu-name>-prod` — each with OIDC secrets for that BU's Azure subscription
+(see [CI/CD with GitHub Actions](#cicd-with-github-actions)).
+
+The trigger workflow automatically detects pushes to the new folder. No workflow
+changes needed.
 
 ---
 
@@ -176,23 +226,31 @@ Terraform is handled entirely by the workflows. You never need to run
 
 | Workflow | Type | Purpose |
 |----------|------|---------|
-| `trigger-terraform-orchestration.yml` | Entry point | Fires on changes to `infrastructure/**`; routes to dev/test/prod jobs |
+| `trigger-terraform-orchestration.yml` | Entry point | Detects changed BU folders; runs a matrix job per changed BU |
 | `terraform-orchestration.yml` | Reusable | Chains plan → apply; apply is conditional on `run_tf_apply` |
 | `terraform-analyze-and-plan.yml` | Reusable | validate, fmt-check, plan, upload artifact, post PR comment |
 | `terraform-apply.yml` | Reusable | Download plan artifact, apply |
 
 ### Environment routing
 
-| Git event | Environment | Apply? |
-|-----------|-------------|--------|
-| Push to any non-main branch | `dev` | Yes |
-| Pull request to `main` | `test` | Yes |
-| Push / merge to `main` | `prod` | Yes — requires reviewer approval |
+The trigger workflow detects which `infrastructure/<bu>/virtual-machines` directories
+changed, then runs the orchestration workflow once per changed BU. The environment
+tier is determined by the git event:
+
+| Git event | Tier | GitHub environment | Apply? |
+|-----------|------|--------------------|--------|
+| Push to any non-main branch | `dev` | `<bu>-dev` | Yes |
+| Pull request to `main` | `test` | `<bu>-test` | Yes |
+| Push / merge to `main` | `prod` | `<bu>-prod` | Yes — requires reviewer approval |
 
 ### GitHub Environments
 
-Create three environments in **Settings → Environments**: `dev`, `test`, `prod`.
-Add a required reviewer to `prod` to gate production applies behind a manual approval.
+Create one environment per BU per tier in **Settings → Environments**, named
+`<bu>-dev`, `<bu>-test`, `<bu>-prod`. For example, the reference BU uses:
+`example-dev`, `example-test`, `example-prod`.
+
+Add a required reviewer to every `*-prod` environment to gate production applies
+behind a manual approval.
 
 ### GitHub Secrets
 
@@ -219,8 +277,9 @@ for setup.
 ## Variable Reference
 
 Shared variables defined in `variables.tf` and set in `env/<env>/<env>.tfvars`.
-VM-specific settings (name, size, image, CIDRs) are hardcoded as locals inside
-each `<vm-name>.tf` file.
+VM-specific settings (size, image, CIDRs) are defined as locals inside each
+`<vm-name>.tf` file and passed to the `modules/vm` child module. Resource names
+(`rg-*`, `vnet-*`, VM name) are derived from the `name` argument and `var.environment`.
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
@@ -350,6 +409,7 @@ any scale.
 ## Contributing
 
 1. Fork the repository and create a feature branch
-2. Copy `templates/vm.tf` to add a new VM, adjust the locals block
-3. Open a pull request — the test environment plan and apply run automatically
-4. Merge after review — the prod workflow fires and waits for approval before applying
+2. To add a VM: copy `templates/vm.tf` into the relevant BU folder, adjust the locals block (see [Adding a New VM](#adding-a-new-vm))
+3. To add a BU: create the folder structure and GitHub environments (see [Adding a New Business Unit](#adding-a-new-business-unit))
+4. Open a pull request — the test environment plan and apply run automatically
+5. Merge after review — the prod workflow fires and waits for approval before applying

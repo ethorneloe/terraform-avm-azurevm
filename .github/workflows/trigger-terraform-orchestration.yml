@@ -1,23 +1,23 @@
 # Purpose:
-#   - To orchestrate code analysis, Terraform plan, and optional apply steps for
-#     the virtual-machines root module across dev, test, and prod environments.
-#   - All VM configurations live in a single Terraform root module
-#     (infrastructure/virtual-machines/), so no directory detection is needed –
-#     Terraform itself determines what changed and what to update.
+#   - Orchestrate Terraform plan and apply for every business-unit (BU) root
+#     module that was touched by a push or pull request.
+#   - Each BU lives under infrastructure/<bu>/virtual-machines/. Adding a new BU
+#     folder is all that is needed – this workflow detects it automatically.
 #
 # Environment routing:
 #   dev   → non-main branch pushes   (plan + apply)
 #   test  → pull requests to main    (plan + apply, security analysis enabled)
 #   prod  → push to main             (plan + apply, security analysis enabled)
 #
-# Prerequisites:
-#   - GitHub Secrets: AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, TF_LOG_LEVEL
-#   - GitHub Environments: dev, test, prod
-#     (prod should have a required-reviewers protection rule)
-#   - Backend config and variable values in infrastructure/virtual-machines/env/<env>/
+# GitHub Environments:
+#   One environment per BU × env tier, named "<bu>-<tier>" (e.g. example-dev).
+#   Each environment holds OIDC secrets scoped to that BU's Azure subscription:
+#     AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, TF_LOG_LEVEL
+#   The prod tier should have a required-reviewers protection rule.
 #
-# Notes:
-#   - Expressions are not supported in the "with" section for reusable workflows.
+# Backend / variable files:
+#   infrastructure/<bu>/virtual-machines/env/<tier>/<tier>.tfbackend
+#   infrastructure/<bu>/virtual-machines/env/<tier>/<tier>.tfvars
 
 name: Trigger Terraform Orchestration
 
@@ -31,10 +31,10 @@ permissions:
 on:
   push:
     paths:
-      - 'infrastructure/virtual-machines/**'
+      - 'infrastructure/**/virtual-machines/**'
   pull_request:
     paths:
-      - 'infrastructure/virtual-machines/**'
+      - 'infrastructure/**/virtual-machines/**'
     types:
       - opened
       - reopened
@@ -43,41 +43,77 @@ on:
       - main
 
 jobs:
-  dev:
-    if: github.ref != 'refs/heads/main' && github.event_name == 'push'
-    uses: ./.github/workflows/terraform-orchestration.yml
-    secrets: inherit
-    concurrency: dev_infra
-    with:
-      environment: "dev"
-      run_tf_apply: true
-      working_directory: ./infrastructure/virtual-machines
-      tfbackend_filepath: ./env/dev/dev.tfbackend
-      tfvars_filepath: ./env/dev/dev.tfvars
-      enable_security_analysis: false
+  # ── Step 1: detect which BU directories changed ────────────────────────────
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      env_suffix: ${{ steps.set-env.outputs.env_suffix }}
+      enable_security_analysis: ${{ steps.set-env.outputs.enable_security_analysis }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-  test:
-    if: github.event_name == 'pull_request'
-    uses: ./.github/workflows/terraform-orchestration.yml
-    secrets: inherit
-    concurrency: test_infra
-    with:
-      environment: "test"
-      run_tf_apply: true
-      working_directory: ./infrastructure/virtual-machines
-      tfbackend_filepath: ./env/test/test.tfbackend
-      tfvars_filepath: ./env/test/test.tfvars
-      enable_security_analysis: true
+      - name: Determine environment tier
+        id: set-env
+        run: |
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            echo "env_suffix=test" >> $GITHUB_OUTPUT
+            echo "enable_security_analysis=true" >> $GITHUB_OUTPUT
+          elif [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            echo "env_suffix=prod" >> $GITHUB_OUTPUT
+            echo "enable_security_analysis=true" >> $GITHUB_OUTPUT
+          else
+            echo "env_suffix=dev" >> $GITHUB_OUTPUT
+            echo "enable_security_analysis=false" >> $GITHUB_OUTPUT
+          fi
 
-  prod:
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      - name: Detect changed virtual-machines directories
+        id: set-matrix
+        run: |
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          elif [ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]; then
+            # First push to a new branch – compare with the tip of main
+            BASE_SHA="$(git merge-base HEAD origin/main 2>/dev/null || git rev-list --max-parents=0 HEAD)"
+          else
+            BASE_SHA="${{ github.event.before }}"
+          fi
+
+          # Collect unique infrastructure/<bu>/virtual-machines paths that changed
+          DIRS=$(git diff --name-only "$BASE_SHA" "${{ github.sha }}" \
+            | grep '^infrastructure/' \
+            | grep '/virtual-machines/' \
+            | sed 's|/virtual-machines/.*|/virtual-machines|' \
+            | sort -u)
+
+          if [ -z "$DIRS" ]; then
+            echo "matrix=[]" >> $GITHUB_OUTPUT
+          else
+            # Build a JSON array of {directory, bu} objects
+            MATRIX=$(printf '%s\n' $DIRS \
+              | jq -R '{directory: ., bu: (split("/") | .[1])}' \
+              | jq -sc .)
+            echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+          fi
+
+  # ── Step 2: run plan + apply for each changed BU ───────────────────────────
+  terraform:
+    needs: detect
+    if: needs.detect.outputs.matrix != '[]' && needs.detect.outputs.matrix != ''
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.detect.outputs.matrix) }}
     uses: ./.github/workflows/terraform-orchestration.yml
     secrets: inherit
-    concurrency: prod_infra
+    concurrency: ${{ matrix.directory }}-${{ needs.detect.outputs.env_suffix }}
     with:
-      environment: "prod"
+      environment: "${{ matrix.bu }}-${{ needs.detect.outputs.env_suffix }}"
       run_tf_apply: true
-      working_directory: ./infrastructure/virtual-machines
-      tfbackend_filepath: ./env/prod/prod.tfbackend
-      tfvars_filepath: ./env/prod/prod.tfvars
-      enable_security_analysis: true
+      working_directory: "./${{ matrix.directory }}"
+      tfbackend_filepath: "./env/${{ needs.detect.outputs.env_suffix }}/${{ needs.detect.outputs.env_suffix }}.tfbackend"
+      tfvars_filepath: "./env/${{ needs.detect.outputs.env_suffix }}/${{ needs.detect.outputs.env_suffix }}.tfvars"
+      enable_security_analysis: ${{ needs.detect.outputs.enable_security_analysis == 'true' }}
+      artifact_basename: "terraform-plan-${{ matrix.bu }}-${{ needs.detect.outputs.env_suffix }}"
