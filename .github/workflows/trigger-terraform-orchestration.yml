@@ -1,8 +1,9 @@
 # Purpose:
 #   - Orchestrate Terraform plan and apply for every department root module
 #     that was touched by a pull request or merge to main.
-#   - Each department lives under infrastructure/example/<dept>/. Adding a new
-#     department folder is all that is needed – this workflow detects it automatically.
+#   - Each department lives under infrastructure/<dept>/virtual-machines/. Adding
+#     a new department folder is all that is needed – this workflow detects it
+#     automatically.
 #
 # Environment routing:
 #   test  → pull requests to main    (plan + apply)
@@ -25,8 +26,8 @@
 #   new department, add its folder and extend SUBSCRIPTION_MAP in each environment.
 #
 # Backend / variable files:
-#   infrastructure/example/<dept>/env/<tier>/<tier>.tfbackend
-#   infrastructure/example/<dept>/env/<tier>/<tier>.tfvars
+#   infrastructure/<dept>/virtual-machines/env/<tier>/<tier>.tfbackend
+#   infrastructure/<dept>/virtual-machines/env/<tier>/<tier>.tfvars
 
 name: Trigger Terraform Orchestration
 
@@ -42,10 +43,10 @@ on:
     branches:
       - main
     paths:
-      - 'infrastructure/example/**'
+      - 'infrastructure/**/virtual-machines/**'
   pull_request:
     paths:
-      - 'infrastructure/example/**'
+      - 'infrastructure/**/virtual-machines/**'
     types:
       - opened
       - reopened
@@ -54,30 +55,17 @@ on:
       - main
 
 jobs:
-  # ── Step 1: detect which BU directories changed ────────────────────────────
+  # ── Step 1: detect which department directories changed ─────────────────────
   detect:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
-      env_suffix: ${{ steps.set-env.outputs.env_suffix }}
-      github_environment: ${{ steps.set-env.outputs.github_environment }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Determine environment tier
-        id: set-env
-        run: |
-          if [ "${{ github.event_name }}" == "pull_request" ]; then
-            echo "env_suffix=test" >> $GITHUB_OUTPUT
-            echo "github_environment=test" >> $GITHUB_OUTPUT
-          else
-            echo "env_suffix=prod" >> $GITHUB_OUTPUT
-            echo "github_environment=prod" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Detect changed virtual-machines directories
+      - name: Detect changed department directories
         id: set-matrix
         run: |
           if [ "${{ github.event_name }}" == "pull_request" ]; then
@@ -86,10 +74,11 @@ jobs:
             BASE_SHA="${{ github.event.before }}"
           fi
 
-          # Collect unique infrastructure/example/<dept> paths that changed
+          # Collect unique infrastructure/<dept>/virtual-machines paths that changed
           DIRS=$(git diff --name-only "$BASE_SHA" "${{ github.sha }}" \
-            | grep '^infrastructure/example/' \
-            | sed 's|^\(infrastructure/example/[^/]*\)/.*|\1|' \
+            | grep '^infrastructure/' \
+            | grep '/virtual-machines/' \
+            | sed 's|/virtual-machines/.*|/virtual-machines|' \
             | sort -u)
 
           if [ -z "$DIRS" ]; then
@@ -99,12 +88,12 @@ jobs:
             # Subscription IDs are resolved later from vars.SUBSCRIPTION_MAP
             # scoped to the target GitHub environment.
             MATRIX=$(printf '%s\n' $DIRS \
-              | jq -R '{directory: ., bu: (split("/") | .[2])}' \
+              | jq -R '{directory: ., bu: (split("/") | .[1])}' \
               | jq -sc .)
             echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
           fi
 
-  # ── Step 2: run plan + apply for each changed BU ───────────────────────────
+  # ── Step 2: run plan + apply for each changed department ────────────────────
   terraform:
     needs: detect
     if: needs.detect.outputs.matrix != '[]' && needs.detect.outputs.matrix != ''
@@ -112,16 +101,16 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJson(needs.detect.outputs.matrix) }}
-    environment: ${{ needs.detect.outputs.github_environment }}
+    environment: ${{ github.event_name == 'pull_request' && 'test' || 'prod' }}
     uses: ./.github/workflows/terraform-orchestration.yml
     secrets: inherit
-    concurrency: ${{ matrix.directory }}-${{ needs.detect.outputs.env_suffix }}
+    concurrency: ${{ matrix.directory }}-${{ github.event_name == 'pull_request' && 'test' || 'prod' }}
     with:
-      environment: "${{ needs.detect.outputs.github_environment }}"
+      environment: "${{ github.event_name == 'pull_request' && 'test' || 'prod' }}"
       subscription_id: "${{ fromJson(vars.SUBSCRIPTION_MAP)[matrix.bu] }}"
       run_tf_apply: true
       working_directory: "./${{ matrix.directory }}"
-      tfbackend_filepath: "./env/${{ needs.detect.outputs.env_suffix }}/${{ needs.detect.outputs.env_suffix }}.tfbackend"
-      tfvars_filepath: "./env/${{ needs.detect.outputs.env_suffix }}/${{ needs.detect.outputs.env_suffix }}.tfvars"
+      tfbackend_filepath: "./env/${{ github.event_name == 'pull_request' && 'test' || 'prod' }}/${{ github.event_name == 'pull_request' && 'test' || 'prod' }}.tfbackend"
+      tfvars_filepath: "./env/${{ github.event_name == 'pull_request' && 'test' || 'prod' }}/${{ github.event_name == 'pull_request' && 'test' || 'prod' }}.tfvars"
       enable_security_analysis: true
-      artifact_basename: "terraform-plan-${{ matrix.bu }}-${{ needs.detect.outputs.env_suffix }}"
+      artifact_basename: "terraform-plan-${{ matrix.bu }}-${{ github.event_name == 'pull_request' && 'test' || 'prod' }}"

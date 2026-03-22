@@ -29,7 +29,7 @@ locals {
 }
 
 module "bizapps_web_01" {
-  source = "../../../../modules/vm"
+  source = "../../../modules/vm"
 
   name                = "bizapps-web-01"
   environment         = var.environment
