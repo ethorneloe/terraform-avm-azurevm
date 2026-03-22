@@ -115,10 +115,14 @@ module "vm" {
     storage_account_type = var.config.os_disk_type
   }
 
-  admin_username                  = var.config.admin_username
-  generate_admin_password_or_key  = var.admin_password == null || var.config.disable_password_auth
-  admin_password                  = var.config.disable_password_auth ? null : var.admin_password
-  disable_password_authentication = var.config.disable_password_auth
+  account_credentials = {
+    admin_credentials = {
+      username                           = var.config.admin_username
+      password                           = var.config.disable_password_auth ? null : var.admin_password
+      generate_admin_password_or_ssh_key = var.admin_password == null || var.config.disable_password_auth
+    }
+    password_authentication_disabled = var.config.disable_password_auth
+  }
 
   managed_identities = var.config.enable_system_identity ? { system_assigned = true } : null
   boot_diagnostics   = var.config.enable_boot_diagnostics ? {} : null
