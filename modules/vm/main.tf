@@ -17,7 +17,7 @@ data "azurerm_resource_group" "this" {
 
 # https://registry.terraform.io/modules/Azure/avm-res-network-networksecuritygroup/azurerm
 module "nsg" {
-  count = var.config.enable_public_ip ? 1 : 0
+  count = var.config.enable_public_ip && length(var.config.allowed_cidrs) > 0 ? 1 : 0
 
   source  = "Azure/avm-res-network-networksecuritygroup/azurerm"
   version = "~> 0.5"
@@ -70,7 +70,7 @@ module "vnet" {
     snet_vms = {
       name             = "snet-vms"
       address_prefixes = [var.config.subnet_prefix]
-      network_security_group = var.config.enable_public_ip ? {
+      network_security_group = var.config.enable_public_ip && length(var.config.allowed_cidrs) > 0 ? {
         id = module.nsg[0].resource_id
       } : null
     }

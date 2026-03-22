@@ -23,7 +23,7 @@ locals {
     enable_boot_diagnostics = true
     zone                    = null  # "1", "2", or "3" for zonal deployments
     enable_public_ip        = false # set to true to attach a public IP and open SSH/RDP
-    allowed_cidrs           = ["*"] # restrict to known IPs in production
+    allowed_cidrs           = [] # set to specific CIDRs (e.g. ["203.0.113.10/32"]) to enable SSH/RDP access
   }
 }
 
