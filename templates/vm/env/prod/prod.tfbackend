@@ -1,0 +1,4 @@
+resource_group_name  = "rg-tfstate"
+storage_account_name = "satfstate<unique-suffix>"
+container_name       = "tfstate"
+key                  = "<vm-name>-prod.terraform.tfstate"

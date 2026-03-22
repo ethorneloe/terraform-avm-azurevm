@@ -4,7 +4,8 @@ A hands-on lab showing how to deploy Azure Virtual Machines using the
 [Azure Verified Module (AVM) for Compute: Virtual Machine](https://registry.terraform.io/modules/Azure/avm-res-compute-virtualmachine/azurerm).
 
 Each VM lives in its own folder under `infrastructure/virtual-machines/`, making
-it easy to manage, diff, and deploy VMs independently.
+it easy to manage, diff, and deploy VMs independently across dev, test, and prod
+environments.
 
 ---
 
@@ -49,24 +50,39 @@ terraform-avm-azurevm/
 │
 ├── .github/
 │   └── workflows/
-│       ├── terraform-plan.yml      # Runs on pull request – validates & plans
-│       ├── terraform-apply.yml     # Runs on merge to main – applies changes
-│       └── terraform-destroy.yml   # Manual workflow – destroys a VM
+│       ├── trigger-terraform-orchestration.yml  # Entry point – fires on infrastructure/ changes
+│       ├── terraform-orchestration.yml          # Reusable – chains plan → apply
+│       ├── terraform-analyze-and-plan.yml       # Reusable – validate, fmt, plan, post PR comment
+│       └── terraform-apply.yml                  # Reusable – apply pre-approved plan
 │
 ├── infrastructure/
 │   └── virtual-machines/
 │       └── example-vm/             # Reference VM configuration
-│           ├── main.tf
-│           ├── variables.tf
-│           ├── outputs.tf
-│           └── terraform.tfvars.template
+│           ├── main.tf             # Resources (VNet, VM via AVM module)
+│           ├── variables.tf        # All input variables with defaults
+│           ├── outputs.tf          # VM ID, name, private IP
+│           ├── providers.tf        # Terraform version, providers, empty backend block
+│           └── env/
+│               ├── dev/
+│               │   ├── dev.tfbackend   # Backend config for dev state file
+│               │   └── dev.tfvars      # Variable values for dev
+│               ├── test/
+│               │   ├── test.tfbackend
+│               │   └── test.tfvars
+│               └── prod/
+│                   ├── prod.tfbackend
+│                   └── prod.tfvars
 │
 ├── templates/
 │   └── vm/                         # Blank template – copy this for each new VM
 │       ├── main.tf
 │       ├── variables.tf
 │       ├── outputs.tf
-│       └── terraform.tfvars.template
+│       ├── providers.tf
+│       └── env/
+│           ├── dev/  (dev.tfbackend, dev.tfvars)
+│           ├── test/ (test.tfbackend, test.tfvars)
+│           └── prod/ (prod.tfbackend, prod.tfvars)
 │
 ├── .gitignore
 ├── LICENSE
@@ -74,9 +90,10 @@ terraform-avm-azurevm/
 ```
 
 **One folder = one VM.**
-Each VM folder is a self-contained Terraform root module with its own state file
-in Azure Blob Storage. Add a new VM by copying `templates/vm/` – nothing else
-needs to change.
+Each VM folder is a self-contained Terraform root module. Environment-specific
+configuration (backend location, variable values) lives in the `env/` subfolder.
+Backend credentials are never hardcoded – they are passed to `terraform init` at
+runtime via `-backend-config`.
 
 ---
 
@@ -109,46 +126,47 @@ az login
 az account set --subscription "<your-subscription-id>"
 ```
 
-### 3. Create your tfvars file
+### 3. Fill in the environment variable files
+
+Navigate to the example VM's dev environment:
 
 ```bash
 cd infrastructure/virtual-machines/example-vm
-cp terraform.tfvars.template terraform.tfvars
 ```
 
-Open `terraform.tfvars` in your editor and fill in at minimum:
+Edit `env/dev/dev.tfvars` and fill in your values:
 
 ```hcl
 subscription_id     = "00000000-0000-0000-0000-000000000000"
-resource_group_name = "rg-example-vm"
-vm_name             = "example-vm"
+resource_group_name = "rg-example-vm-dev"
+vm_name             = "example-vm-dev"
 ```
 
-> `terraform.tfvars` is git-ignored – it will never be committed.
-
-### 4. Update the backend block
-
-Open `main.tf` and update the `backend "azurerm"` block with your storage
-account details:
+Edit `env/dev/dev.tfbackend` with your storage account details:
 
 ```hcl
-backend "azurerm" {
-  resource_group_name  = "rg-tfstate"
-  storage_account_name = "satfstate<unique-suffix>"
-  container_name       = "tfstate"
-  key                  = "example-vm.terraform.tfstate"
-}
+resource_group_name  = "rg-tfstate"
+storage_account_name = "satfstate<unique-suffix>"
+container_name       = "tfstate"
+key                  = "example-vm-dev.terraform.tfstate"
 ```
 
-Alternatively, pass these values at `terraform init` time (see
-[Remote State Setup](#remote-state-setup)).
+> The `env/` files **are** committed to the repo – they contain non-sensitive
+> configuration. Never put passwords or subscription keys directly in these files.
 
-### 5. Initialise, plan, and apply
+### 4. Initialise Terraform
+
+Pass the backend config file at init time (matches the pattern used in CI/CD):
 
 ```bash
-terraform init
-terraform plan
-terraform apply
+terraform init -backend-config=env/dev/dev.tfbackend
+```
+
+### 5. Plan and apply
+
+```bash
+terraform plan -var-file=env/dev/dev.tfvars
+terraform apply -var-file=env/dev/dev.tfvars
 ```
 
 Type `yes` when prompted. Terraform will create:
@@ -170,25 +188,24 @@ terraform output private_ip_address
 ```bash
 # 1. Copy the template
 cp -r templates/vm infrastructure/virtual-machines/<new-vm-name>
-
-# 2. Create your tfvars
 cd infrastructure/virtual-machines/<new-vm-name>
-cp terraform.tfvars.template terraform.tfvars
 
-# 3. Edit terraform.tfvars with the new VM's values
-#    At minimum: subscription_id, resource_group_name, vm_name
+# 2. Fill in each environment's variable file
+#    Replace all <placeholder> values in env/dev/dev.tfvars, env/test/test.tfvars, env/prod/prod.tfvars
 
-# 4. Update the backend key in main.tf
-#    key = "<new-vm-name>.terraform.tfstate"
+# 3. Update each environment's backend key
+#    env/dev/dev.tfbackend   → key = "<new-vm-name>-dev.terraform.tfstate"
+#    env/test/test.tfbackend → key = "<new-vm-name>-test.terraform.tfstate"
+#    env/prod/prod.tfbackend → key = "<new-vm-name>-prod.terraform.tfstate"
 
-# 5. Deploy
-terraform init
-terraform plan
-terraform apply
+# 4. Initialise and deploy (dev environment example)
+terraform init -backend-config=env/dev/dev.tfbackend
+terraform plan  -var-file=env/dev/dev.tfvars
+terraform apply -var-file=env/dev/dev.tfvars
 ```
 
-Each VM has its own state file (`<vm-name>.terraform.tfstate`) in the shared
-storage container, so VMs are completely independent of each other.
+Each VM has its own state file per environment, so VMs and environments are
+completely independent of each other.
 
 ---
 
@@ -277,14 +294,13 @@ az vm image list --publisher Canonical --all --output table
 If you don't have an Azure Storage Account for Terraform state, create one:
 
 ```bash
-# Variables
 RG="rg-tfstate"
 SA="satfstate$(openssl rand -hex 4)"   # must be globally unique, 3-24 lowercase chars
 CONTAINER="tfstate"
 LOCATION="uksouth"
 
-# Create resources
 az group create --name $RG --location $LOCATION
+
 az storage account create \
   --name $SA \
   --resource-group $RG \
@@ -299,33 +315,37 @@ az storage container create \
   --account-name $SA \
   --auth-mode login
 
-echo "Storage account: $SA"
-echo "Container:       $CONTAINER"
-echo "Resource group:  $RG"
+echo "Storage account: $SA  →  use in *.tfbackend files"
 ```
 
-Then initialise Terraform with backend config overrides (no hardcoded values in
-`main.tf`):
-
-```bash
-terraform init \
-  -backend-config="resource_group_name=$RG" \
-  -backend-config="storage_account_name=$SA" \
-  -backend-config="container_name=$CONTAINER" \
-  -backend-config="key=<vm-name>.terraform.tfstate"
-```
+Then update all `*.tfbackend` files in your VM's `env/` folders with the
+storage account name and resource group.
 
 ---
 
 ## CI/CD with GitHub Actions
 
-Three workflows are included:
+The workflow design mirrors [terraform-azurerm-law-dcr](https://github.com/ethorneloe/terraform-azurerm-law-dcr)
+with four files following the same reusable-workflow pattern:
 
-| Workflow | Trigger | Purpose |
-|----------|---------|---------|
-| `terraform-plan.yml` | Pull request to `main` | Validates, formats-checks, and plans changed VMs. Posts the plan as a PR comment. |
-| `terraform-apply.yml` | Push / merge to `main` | Applies changes to any VM directories modified in the merge commit. |
-| `terraform-destroy.yml` | Manual (`workflow_dispatch`) | Destroys a specified VM. Requires typing `DESTROY` to confirm. |
+| Workflow | Type | Trigger | Purpose |
+|----------|------|---------|---------|
+| `trigger-terraform-orchestration.yml` | Entry point | Push / PR to `infrastructure/**` | Detects changed VM dirs, routes to dev/test/prod jobs |
+| `terraform-orchestration.yml` | Reusable | `workflow_call` | Chains plan → apply; apply is conditional on `run_tf_apply` |
+| `terraform-analyze-and-plan.yml` | Reusable | `workflow_call` | validate, fmt-check, plan, upload artifact, post PR comment |
+| `terraform-apply.yml` | Reusable | `workflow_call` | Download plan artifact, apply |
+
+### Environment routing
+
+| Git event | Environment used | Apply? |
+|-----------|-----------------|--------|
+| Push to any non-main branch | `dev` | Yes |
+| Pull request to `main` | `test` | No (plan only) |
+| Push / merge to `main` | `prod` | Yes |
+
+The `prod` GitHub environment should be configured with a **required reviewer**
+protection rule so every production apply requires manual approval after the plan
+is reviewed.
 
 ### GitHub Secrets required
 
@@ -333,49 +353,63 @@ Configure these in **Settings → Secrets and variables → Actions**:
 
 | Secret | Value |
 |--------|-------|
-| `AZURE_CLIENT_ID` | App registration / managed identity Client ID |
+| `AZURE_CLIENT_ID` | App registration Client ID (used for OIDC) |
 | `AZURE_TENANT_ID` | Azure AD Tenant ID |
 | `AZURE_SUBSCRIPTION_ID` | Target subscription ID |
-| `TFSTATE_RESOURCE_GROUP` | Resource group of the state storage account |
-| `TFSTATE_STORAGE_ACCOUNT` | Storage account name |
-| `TFSTATE_CONTAINER` | Blob container name (e.g. `tfstate`) |
+| `TF_LOG_LEVEL` | Optional – Terraform log verbosity (e.g. `INFO`, `DEBUG`, or leave blank) |
+
+> Note: Unlike a simpler setup, the storage account for state is configured
+> directly in each VM's `env/<env>/<env>.tfbackend` files, so no storage account
+> secrets are needed in GitHub.
+
+### GitHub Environments required
+
+Create three GitHub environments (**Settings → Environments**): `dev`, `test`, `prod`.
+Each environment must have the Azure OIDC secrets configured. Add a required
+reviewer to `prod` to gate production applies behind a manual approval.
 
 ### OIDC / Workload Identity Federation setup
 
 The workflows use OIDC – no client secrets are stored in GitHub.
 
 ```bash
-# Create an app registration
 APP_ID=$(az ad app create --display-name "github-terraform-avm-azurevm" \
   --query appId -o tsv)
 
-SP_ID=$(az ad sp create --id $APP_ID --query id -o tsv)
+az ad sp create --id $APP_ID
 
-# Assign Contributor on the target subscription
+# Assign Contributor on the target subscription(s)
 az role assignment create \
   --assignee $APP_ID \
   --role Contributor \
   --scope /subscriptions/<subscription-id>
 
-# Add federated credentials for pull_request and main branch
+# Federated credential for pull requests
 az ad app federated-credential create --id $APP_ID --parameters '{
   "name": "github-pr",
   "issuer": "https://token.actions.githubusercontent.com",
-  "subject": "repo:<org>/<repo>:pull_request",
+  "subject": "repo:<org>/terraform-avm-azurevm:pull_request",
   "audiences": ["api://AzureADTokenExchange"]
 }'
 
+# Federated credential for main branch pushes
 az ad app federated-credential create --id $APP_ID --parameters '{
   "name": "github-main",
   "issuer": "https://token.actions.githubusercontent.com",
-  "subject": "repo:<org>/<repo>:ref:refs/heads/main",
+  "subject": "repo:<org>/terraform-avm-azurevm:ref:refs/heads/main",
   "audiences": ["api://AzureADTokenExchange"]
 }'
 
-echo "AZURE_CLIENT_ID: $APP_ID"
-```
+# Federated credential for non-main branch pushes (dev)
+az ad app federated-credential create --id $APP_ID --parameters '{
+  "name": "github-branches",
+  "issuer": "https://token.actions.githubusercontent.com",
+  "subject": "repo:<org>/terraform-avm-azurevm:ref:refs/heads/*",
+  "audiences": ["api://AzureADTokenExchange"]
+}'
 
-Store `$APP_ID` as the `AZURE_CLIENT_ID` secret in GitHub.
+echo "AZURE_CLIENT_ID=$APP_ID"
+```
 
 ---
 
@@ -385,21 +419,26 @@ Store `$APP_ID` as the `AZURE_CLIENT_ID` secret in GitHub.
 
 ```bash
 cd infrastructure/virtual-machines/<vm-name>
-terraform destroy
+terraform init   -backend-config=env/dev/dev.tfbackend
+terraform destroy -var-file=env/dev/dev.tfvars
 ```
 
-### Via GitHub Actions
+### Via the reusable workflow (workflow_dispatch)
 
-1. Go to **Actions → Terraform Destroy → Run workflow**
-2. Enter the VM directory path, e.g. `infrastructure/virtual-machines/example-vm`
-3. Type `DESTROY` in the confirmation field
-4. Click **Run workflow**
+You can trigger `terraform-orchestration.yml` directly from the GitHub Actions UI
+(**Actions → Terraform Orchestration → Run workflow**) and pass:
+
+- `environment`: `dev`, `test`, or `prod`
+- `working_directory`: e.g. `infrastructure/virtual-machines/example-vm`
+- `tfbackend_filepath`: e.g. `env/dev/dev.tfbackend`
+- `tfvars_filepath`: e.g. `env/dev/dev.tfvars`
+- `run_tf_apply`: `false` (plan only first, then confirm)
 
 ---
 
 ## Contributing
 
 1. Fork the repository and create a feature branch
-2. Copy `templates/vm/` to add a new VM, or modify an existing one
-3. Open a pull request – the plan workflow will run automatically
-4. Merge after review – the apply workflow deploys the changes
+2. Copy `templates/vm/` to add a new VM, fill in the `env/` files
+3. Open a pull request – the test environment plan runs automatically
+4. Merge after review – the prod workflow fires and waits for approval before applying

@@ -1,40 +1,9 @@
 ###############################################################################
 # Azure Verified Module – Virtual Machine Template
 #
-# Usage:
-#   1. Copy this folder to infrastructure/virtual-machines/<vm-name>/
-#   2. Fill in terraform.tfvars (copy from terraform.tfvars.template)
-#   3. Run: terraform init && terraform plan
-###############################################################################
-
-terraform {
-  required_version = ">= 1.9"
-
-  required_providers {
-    azurerm = {
-      source  = "hashicorp/azurerm"
-      version = "~> 4.0"
-    }
-    random = {
-      source  = "hashicorp/random"
-      version = "~> 3.6"
-    }
-  }
-
-  # Remote state – update container/key per VM
-  backend "azurerm" {
-    resource_group_name  = "rg-tfstate"
-    storage_account_name = "satfstate<unique-suffix>"
-    container_name       = "tfstate"
-    key                  = "<vm-name>.terraform.tfstate"
-  }
-}
-
-provider "azurerm" {
-  features {}
-  subscription_id = var.subscription_id
-}
-
+# Terraform and provider configuration lives in providers.tf.
+# Backend configuration is supplied per-environment via env/<env>/<env>.tfbackend.
+# Variable values are supplied per-environment via env/<env>/<env>.tfvars.
 ###############################################################################
 # Resource Group
 ###############################################################################

@@ -1,0 +1,96 @@
+# Purpose:
+#   - To orchestrate the Terraform analysis, planning, and optional apply steps in a single reusable workflow.
+#   - Simplify and standardize Terraform operations across multiple environments.
+#
+# Steps:
+#   1. Analyze and Plan:
+#       - Calls the Terraform Analyze and Plan workflow to perform validation, formatting checks, security analysis, and generate a Terraform plan.
+#   2. Apply (Optional):
+#       - If run_tf_apply is set to true, calls the Terraform Apply workflow to apply the generated Terraform plan from the previous job.
+#
+# Prerequisites:
+#   - Make sure all required inputs and secrets are configured in parent and child workflows
+#
+# Usage:
+#   - Invoke this workflow using workflow_call from another workflow or trigger it directly.
+#   - Provide the required inputs when triggering this workflow.
+#   - Set run_tf_apply to true if you want to automatically apply the Terraform plan after analysis and planning.
+#
+# Notes:
+#   - The plan and apply jobs are separated to allow for approval through environment protection rules.  This way the plan
+#     can be automatic upon PR approval for example, but the apply must be approved to ensure changes do not occur until the plan
+#     has been reviewed.  To do this, two GitHub environments with identical secrets must be created but the apply environment contains
+#     protection rules to require approval.
+
+name: Terraform Orchestration
+
+permissions:
+  id-token: write        # Needed for OIDC authentication
+  contents: read         # Needed for the checkout action
+  actions: read          # Needed for the upload-sarif action
+  security-events: write # Needed for the upload-sarif action
+  pull-requests: write   # Needed to post Terraform plan as PR comment
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      plan_filename:
+        required: false
+        default: "plan.tfplan"
+        type: string
+      working_directory:
+        required: true
+        type: string
+      terraform_version:
+        required: false
+        default: ""
+        type: string
+      enable_security_analysis:
+        description: "Toggle the security analysis step"
+        required: true
+        type: boolean
+      artifact_basename:
+        required: false
+        default: "terraform-plan"
+        type: string
+      run_tf_apply:
+        required: false
+        default: false
+        type: boolean
+      tfbackend_filepath:
+        required: true
+        type: string
+      tfvars_filepath:
+        required: true
+        type: string
+
+jobs:
+   A:
+    uses: ./.github/workflows/terraform-analyze-and-plan.yml
+    secrets: inherit
+    with:
+      environment: ${{ inputs.environment }}
+      plan_filename: ${{ inputs.plan_filename }}
+      working_directory: ${{ inputs.working_directory }}
+      terraform_version: ${{ inputs.terraform_version }}
+      artifact_basename: ${{ inputs.artifact_basename }}
+      tfbackend_filepath: ${{ inputs.tfbackend_filepath }}
+      tfvars_filepath: ${{ inputs.tfvars_filepath }}
+      enable_security_analysis: ${{ inputs.enable_security_analysis }}
+
+   B:
+    if: inputs.run_tf_apply == true
+    needs: A
+    uses: ./.github/workflows/terraform-apply.yml
+    secrets: inherit
+    with:
+      environment: ${{ inputs.environment }}
+      plan_filename: ${{ inputs.plan_filename }}
+      working_directory: ${{ inputs.working_directory }}
+      terraform_version: ${{ inputs.terraform_version }}
+      artifact_basename: ${{ inputs.artifact_basename }}
+      tfbackend_filepath: ${{ inputs.tfbackend_filepath }}
+      tfvars_filepath: ${{ inputs.tfvars_filepath }}

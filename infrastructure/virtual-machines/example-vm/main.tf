@@ -3,36 +3,10 @@
 #
 # This is the example/reference configuration. See templates/vm/ for the
 # blank template to copy when adding a new VM.
-###############################################################################
-
-terraform {
-  required_version = ">= 1.9"
-
-  required_providers {
-    azurerm = {
-      source  = "hashicorp/azurerm"
-      version = "~> 4.0"
-    }
-    random = {
-      source  = "hashicorp/random"
-      version = "~> 3.6"
-    }
-  }
-
-  # Remote state – update container/key per VM
-  backend "azurerm" {
-    resource_group_name  = "rg-tfstate"
-    storage_account_name = "satfstate<unique-suffix>"
-    container_name       = "tfstate"
-    key                  = "example-vm.terraform.tfstate"
-  }
-}
-
-provider "azurerm" {
-  features {}
-  subscription_id = var.subscription_id
-}
-
+#
+# Terraform and provider configuration lives in providers.tf.
+# Backend configuration is supplied per-environment via env/<env>/<env>.tfbackend.
+# Variable values are supplied per-environment via env/<env>/<env>.tfvars.
 ###############################################################################
 # Resource Group
 ###############################################################################

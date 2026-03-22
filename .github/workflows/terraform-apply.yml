@@ -1,105 +1,109 @@
-###############################################################################
-# Terraform Apply – runs on push to main for changed VM directories
+# Purpose:
+#   - To simplify and standardize terraform apply operations across multiple environments.
+#   - Apply pre-approved Terraform plans with environment protection rules and approval gates.
 #
-# Required repository secrets / variables: (same as terraform-plan.yml)
-#   AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
-#   TFSTATE_RESOURCE_GROUP, TFSTATE_STORAGE_ACCOUNT, TFSTATE_CONTAINER
+# Main Steps:
+#   1. Checkout Repository:
+#       - Clones the repository to access the necessary Terraform configuration files.
+#   2. Setup Terraform:
+#       - Installs the specified version of Terraform to ensure version consistency.
+#   3. Initialize Terraform:
+#       - Runs terraform init with the provided backend configuration to prepare the working directory.
+#   4. Download Terraform Plan:
+#       - Downloads the Terraform plan artifact from the previous analyze-and-plan job.
+#   5. Apply Terraform Plan:
+#       - Executes terraform apply with the plan file to deploy the infrastructure changes.
 #
-# Configure the federated credential subject:
-#   repo:<org>/<repo>:ref:refs/heads/main
-###############################################################################
+# Prerequisites:
+#   - GitHub Secrets for Azure credentials are properly configured for OIDC authentication.
+#   - Terraform configurations and backend settings exist in the specified working directory.
+#   - GitHub Environment protection rules configured for approval gates (if required).
+#
+# Usage:
+#   - Invoke this workflow using workflow_call from another workflow.
+#   - Ensure all required inputs are provided when triggering this workflow.
+#   - Adjust the optional inputs as needed for your specific use case.
 
 name: Terraform Apply
 
-on:
-  push:
-    branches:
-      - main
-    paths:
-      - "infrastructure/**"
-      - ".github/workflows/terraform-apply.yml"
-
 permissions:
-  id-token: write
-  contents: read
+  id-token: write        # Needed for OIDC authentication
+  contents: read         # Needed for the checkout action
+  actions: read          # Needed for the upload-sarif action
+  security-events: write # Needed for the upload-sarif action
 
-env:
-  TF_VERSION: "1.9.8"
-  ARM_USE_OIDC: "true"
-  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "GitHub Environment"
+        required: true
+        type: string
+      plan_filename:
+        description: "Name of the Terraform plan file"
+        required: true
+        type: string
+      working_directory:
+        description: "Working directory for Terraform configurations"
+        required: true
+        type: string
+      terraform_version:
+        description: "Version of Terraform to use"
+        required: false
+        type: string
+        default: ""
+      artifact_basename:
+        required: true
+        type: string
+      tfbackend_filepath:
+        description: "Path to the Terraform backend configuration file"
+        required: true
+        type: string
+      tfvars_filepath:
+        description: "Name of the Terraform variables file"
+        required: false
+        type: string
+        default: ""
 
 jobs:
-  detect-changes:
-    name: Detect changed VM directories
-    runs-on: ubuntu-latest
-    outputs:
-      vm_dirs: ${{ steps.changes.outputs.vm_dirs }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+  apply:
 
-      - name: Identify changed infrastructure directories
-        id: changes
-        run: |
-          CHANGED=$(git diff --name-only HEAD~1 HEAD \
-            | grep '^infrastructure/virtual-machines/' \
-            | awk -F'/' '{print $1"/"$2"/"$3}' \
-            | sort -u)
-          if [ -z "$CHANGED" ]; then
-            echo "vm_dirs=[]" >> "$GITHUB_OUTPUT"
-          else
-            JSON=$(echo "$CHANGED" | jq -R -s -c 'split("\n") | map(select(length > 0))')
-            echo "vm_dirs=$JSON" >> "$GITHUB_OUTPUT"
-          fi
+    env:
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_USE_OIDC: true
+      ARM_USE_AZUREAD: true # Needed for using OIDC to access the Azure storage account backend
+      TF_LOG: ${{ secrets.TF_LOG_LEVEL }}
 
-  terraform-apply:
-    name: Apply – ${{ matrix.vm_dir }}
-    needs: detect-changes
-    if: needs.detect-changes.outputs.vm_dirs != '[]'
     runs-on: ubuntu-latest
-    environment: production
-    strategy:
-      # Apply VMs sequentially to avoid state lock conflicts
-      max-parallel: 1
-      matrix:
-        vm_dir: ${{ fromJson(needs.detect-changes.outputs.vm_dirs) }}
+
+    environment: ${{ inputs.environment }}
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
 
     steps:
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      - name: Azure Login (OIDC)
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          terraform_version: ${{ inputs.terraform_version }}
 
       - name: Terraform Init
-        working-directory: ${{ matrix.vm_dir }}
         run: |
-          VM_NAME=$(basename "${{ matrix.vm_dir }}")
-          terraform init \
-            -backend-config="resource_group_name=${{ secrets.TFSTATE_RESOURCE_GROUP }}" \
-            -backend-config="storage_account_name=${{ secrets.TFSTATE_STORAGE_ACCOUNT }}" \
-            -backend-config="container_name=${{ secrets.TFSTATE_CONTAINER }}" \
-            -backend-config="key=${VM_NAME}.terraform.tfstate"
+          terraform init -input=false -backend-config=${{ inputs.tfbackend_filepath }}
 
-      - name: Terraform Plan
-        working-directory: ${{ matrix.vm_dir }}
-        run: terraform plan -out=tfplan
-        env:
-          TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Download Terraform Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact_basename }}
+          path: ${{ inputs.working_directory }}
 
-      - name: Terraform Apply
-        working-directory: ${{ matrix.vm_dir }}
-        run: terraform apply -auto-approve tfplan
+      - name: Apply Terraform Plan
+        run: |
+          terraform apply -input=false -auto-approve ${{ inputs.plan_filename }}
