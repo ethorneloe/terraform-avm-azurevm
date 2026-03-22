@@ -28,6 +28,7 @@ locals {
     disable_password_auth   = true
     enable_system_identity  = false
     enable_boot_diagnostics = true
+    zone                    = null   # set to "1", "2", or "3" for zonal deployments
   }
 }
 
@@ -62,6 +63,7 @@ module "<vm_name>" {
   name                = local.<vm_name>.name
   os_type             = local.<vm_name>.os_type
   sku_size            = local.<vm_name>.vm_size
+  zone                = local.<vm_name>.zone
 
   source_image_reference = {
     publisher = local.<vm_name>.image.publisher
