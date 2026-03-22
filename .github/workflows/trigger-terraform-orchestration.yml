@@ -9,11 +9,19 @@
 #   test  → pull requests to main    (plan + apply, security analysis enabled)
 #   prod  → push to main             (plan + apply, security analysis enabled)
 #
-# GitHub Environments:
-#   One environment per BU × env tier, named "<bu>-<tier>" (e.g. example-dev).
-#   Each environment holds OIDC secrets scoped to that BU's Azure subscription:
-#     AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, TF_LOG_LEVEL
-#   The prod tier should have a required-reviewers protection rule.
+# GitHub Environments (two total):
+#   infra-nonprod  ← used for dev and test tiers (dev/test Entra tenant)
+#   infra-prod     ← used for prod tier (prod Entra tenant)
+#   Each environment holds OIDC secrets for one service principal covering all
+#   BU subscriptions in that tenant:
+#     AZURE_CLIENT_ID, AZURE_TENANT_ID, TF_LOG_LEVEL
+#   infra-prod should have a required-reviewers protection rule.
+#
+# Subscription routing:
+#   Azure subscription IDs are NOT secrets. They are stored per-BU in
+#   infrastructure/subscriptions.json and injected at runtime. To add a new BU,
+#   add its folder and a corresponding entry in subscriptions.json – no GitHub
+#   environment setup required.
 #
 # Backend / variable files:
 #   infrastructure/<bu>/virtual-machines/env/<tier>/<tier>.tfbackend
@@ -49,6 +57,7 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       env_suffix: ${{ steps.set-env.outputs.env_suffix }}
+      github_environment: ${{ steps.set-env.outputs.github_environment }}
       enable_security_analysis: ${{ steps.set-env.outputs.enable_security_analysis }}
     steps:
       - uses: actions/checkout@v4
@@ -60,12 +69,15 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" == "pull_request" ]; then
             echo "env_suffix=test" >> $GITHUB_OUTPUT
+            echo "github_environment=infra-nonprod" >> $GITHUB_OUTPUT
             echo "enable_security_analysis=true" >> $GITHUB_OUTPUT
           elif [ "${{ github.ref }}" == "refs/heads/main" ]; then
             echo "env_suffix=prod" >> $GITHUB_OUTPUT
+            echo "github_environment=infra-prod" >> $GITHUB_OUTPUT
             echo "enable_security_analysis=true" >> $GITHUB_OUTPUT
           else
             echo "env_suffix=dev" >> $GITHUB_OUTPUT
+            echo "github_environment=infra-nonprod" >> $GITHUB_OUTPUT
             echo "enable_security_analysis=false" >> $GITHUB_OUTPUT
           fi
 
@@ -91,9 +103,13 @@ jobs:
           if [ -z "$DIRS" ]; then
             echo "matrix=[]" >> $GITHUB_OUTPUT
           else
-            # Build a JSON array of {directory, bu} objects
+            ENV_SUFFIX="${{ steps.set-env.outputs.env_suffix }}"
+            SUBSCRIPTION_MAP=$(cat infrastructure/subscriptions.json)
+
+            # Build a JSON array of {directory, bu, subscription_id} objects
             MATRIX=$(printf '%s\n' $DIRS \
-              | jq -R '{directory: ., bu: (split("/") | .[1])}' \
+              | jq -R --argjson subs "$SUBSCRIPTION_MAP" --arg tier "$ENV_SUFFIX" \
+                '{directory: ., bu: (split("/") | .[1]), subscription_id: ($subs[(split("/") | .[1])][$tier] // "")}' \
               | jq -sc .)
             echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
           fi
@@ -110,7 +126,8 @@ jobs:
     secrets: inherit
     concurrency: ${{ matrix.directory }}-${{ needs.detect.outputs.env_suffix }}
     with:
-      environment: "${{ matrix.bu }}-${{ needs.detect.outputs.env_suffix }}"
+      environment: "${{ needs.detect.outputs.github_environment }}"
+      subscription_id: "${{ matrix.subscription_id }}"
       run_tf_apply: true
       working_directory: "./${{ matrix.directory }}"
       tfbackend_filepath: "./env/${{ needs.detect.outputs.env_suffix }}/${{ needs.detect.outputs.env_suffix }}.tfbackend"
