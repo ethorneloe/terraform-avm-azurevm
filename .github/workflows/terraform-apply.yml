@@ -80,6 +80,7 @@ jobs:
       ARM_USE_OIDC: true
       ARM_USE_AZUREAD: true # Needed for using OIDC to access the Azure storage account backend
       TF_LOG: ${{ secrets.TF_LOG_LEVEL }}
+      TF_VAR_admin_password: ${{ secrets.VM_ADMIN_PASSWORD }}
 
     runs-on: ubuntu-latest
 
