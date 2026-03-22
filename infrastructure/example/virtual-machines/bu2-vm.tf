@@ -1,14 +1,14 @@
 ###############################################################################
-# example-vm
+# bu2-vm
 #
-# Reference VM configuration. Copy this file and rename it to add a new VM.
+# Business Unit 2 VM. Copy this file and rename it to add another VM for BU2.
 # All values specific to this VM are defined in the locals block below.
 ###############################################################################
 
 locals {
-  example_vm = {
-    vnet_address_space      = "10.0.0.0/16"
-    subnet_prefix           = "10.0.1.0/24"
+  bu2_vm = {
+    vnet_address_space      = "10.2.0.0/16"
+    subnet_prefix           = "10.2.1.0/24"
     vm_size                 = "Standard_B2s"
     os_type                 = "Linux"
     image = {
@@ -23,17 +23,18 @@ locals {
     enable_boot_diagnostics = true
     zone                    = null  # "1", "2", or "3" for zonal deployments
     enable_public_ip        = false # set to true to attach a public IP and open SSH/RDP
-    allowed_cidrs           = [] # set to specific CIDRs (e.g. ["203.0.113.10/32"]) to enable SSH/RDP access
+    allowed_cidrs           = []    # set to specific CIDRs (e.g. ["203.0.113.10/32"]) to enable SSH/RDP access
   }
 }
 
-module "example_vm" {
+module "bu2_vm" {
   source = "../../../../modules/vm"
 
-  name           = "example-vm"
-  environment    = var.environment
-  location       = var.location
-  tags           = var.tags
-  config         = local.example_vm
-  admin_password = var.admin_password
+  name                = "bu2-vm"
+  environment         = var.environment
+  location            = "westeurope"
+  resource_group_name = "rg-bu2-vms"
+  tags                = var.tags
+  config              = local.bu2_vm
+  admin_password      = var.admin_password
 }
