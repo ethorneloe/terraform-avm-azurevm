@@ -103,9 +103,8 @@ for that environment:
 
 ```hcl
 # env/dev/dev.tfvars
-subscription_id = "00000000-0000-0000-0000-000000000000"
-location        = "uksouth"
-environment     = "dev"
+location    = "uksouth"
+environment = "dev"
 
 tags = {
   environment = "dev"
@@ -113,6 +112,10 @@ tags = {
   project     = "virtual-machines"
 }
 ```
+
+> `subscription_id` is **not** in the tfvars file — it is supplied automatically
+> via the `AZURE_SUBSCRIPTION_ID` GitHub secret, which the workflow exposes to
+> Terraform as `ARM_SUBSCRIPTION_ID`.
 
 > The `env/` files **are** committed to the repo — they contain non-sensitive
 > configuration only. Never put passwords or secrets directly in these files.
@@ -221,10 +224,13 @@ each `<vm-name>.tf` file.
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `subscription_id` | string | – | **Required.** Azure subscription ID. |
 | `location` | string | `"uksouth"` | Azure region for all resources. |
 | `environment` | string | – | **Required.** `dev`, `test`, or `prod`. Used to construct all resource names. |
 | `tags` | map(string) | `{}` | Tags applied to all resources. |
+
+> `subscription_id` is not a Terraform variable — it is provided to the azurerm
+> provider via the `ARM_SUBSCRIPTION_ID` environment variable, set by the workflow
+> from the `AZURE_SUBSCRIPTION_ID` GitHub secret.
 
 ---
 
