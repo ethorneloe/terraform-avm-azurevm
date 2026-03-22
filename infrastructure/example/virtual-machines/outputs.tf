@@ -14,5 +14,5 @@ output "example_vm_name" {
 
 output "example_vm_private_ip" {
   description = "Private IP address of example-vm."
-  value       = module.example_vm.network_interfaces["nic0"].private_ip_address
+  value       = module.example_vm.private_ip
 }

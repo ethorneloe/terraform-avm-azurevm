@@ -24,7 +24,8 @@
 #       - Truncates output if it exceeds GitHub's comment size limit.
 #
 # Prerequisites:
-#   - GitHub Secrets for Azure credentials are properly configured for OIDC authentication.
+#   - GitHub Secrets for Azure OIDC credentials are configured on the GitHub environment
+#     (AZURE_CLIENT_ID, AZURE_TENANT_ID, TF_LOG_LEVEL). Subscription ID is provided as an input.
 #   - Terraform configurations and backend settings exist in the specified working directory.
 #
 # Usage:
@@ -77,13 +78,17 @@ on:
         required: false
         type: string
         default: ""
+      subscription_id:
+        description: "Azure subscription ID for this BU and tier"
+        required: true
+        type: string
 
 jobs:
   analyze-and-plan:
 
     env:
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ inputs.subscription_id }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       ARM_USE_OIDC: true
       ARM_USE_AZUREAD: true # Needed for using OIDC to access the Azure storage account backend

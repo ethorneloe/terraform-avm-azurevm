@@ -19,8 +19,7 @@
 # Notes:
 #   - The plan and apply jobs are separated to allow for approval through environment protection rules.  This way the plan
 #     can be automatic upon PR approval for example, but the apply must be approved to ensure changes do not occur until the plan
-#     has been reviewed.  To do this, two GitHub environments with identical secrets must be created but the apply environment contains
-#     protection rules to require approval.
+#     has been reviewed.  The infra-prod environment should have required-reviewers protection to gate the apply step.
 
 name: Terraform Orchestration
 
@@ -66,6 +65,10 @@ on:
       tfvars_filepath:
         required: true
         type: string
+      subscription_id:
+        description: "Azure subscription ID for this BU and tier"
+        required: true
+        type: string
 
 jobs:
    A:
@@ -73,6 +76,7 @@ jobs:
     secrets: inherit
     with:
       environment: ${{ inputs.environment }}
+      subscription_id: ${{ inputs.subscription_id }}
       plan_filename: ${{ inputs.plan_filename }}
       working_directory: ${{ inputs.working_directory }}
       terraform_version: ${{ inputs.terraform_version }}
@@ -88,6 +92,7 @@ jobs:
     secrets: inherit
     with:
       environment: ${{ inputs.environment }}
+      subscription_id: ${{ inputs.subscription_id }}
       plan_filename: ${{ inputs.plan_filename }}
       working_directory: ${{ inputs.working_directory }}
       terraform_version: ${{ inputs.terraform_version }}
