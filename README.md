@@ -20,7 +20,8 @@ environments.
 7. [Common Image References](#common-image-references)
 8. [Remote State Setup](#remote-state-setup)
 9. [CI/CD with GitHub Actions](#cicd-with-github-actions)
-10. [Destroying Resources](#destroying-resources)
+10. [Scaling Strategies](#scaling-strategies)
+11. [Destroying Resources](#destroying-resources)
 
 ---
 
@@ -410,6 +411,68 @@ az ad app federated-credential create --id $APP_ID --parameters '{
 
 echo "AZURE_CLIENT_ID=$APP_ID"
 ```
+
+---
+
+## Scaling Strategies
+
+This repo starts with a single Terraform root module for all VMs. As your fleet
+grows, here are the natural progression points and when to make each move.
+
+### Strategy 1 – Single directory (current)
+
+All VM configs live in one directory, one state file, one `terraform` run.
+
+**Use when:** Small fleet, one team, straightforward changes.
+
+**Pros:** No CI/CD detection logic needed; Terraform handles everything in one
+run; a change to one VM file only affects that VM in the plan.
+
+**Cons:** All VMs share a state lock (parallel applies are not possible); a
+corrupted state affects all VMs.
+
+---
+
+### Strategy 2 – Split by category
+
+Group VMs by function (e.g. `web-servers/`, `build-agents/`, `jump-hosts/`).
+Each category is its own Terraform root module with its own state file.
+
+The trigger workflow has one static job per category, each with a path condition
+— exactly the same pattern used in `trigger-terraform-orchestration.yml` for
+dev/test/prod today. Adding a category = add one job to the trigger.
+
+```
+infrastructure/
+├── web-servers/      ← terraform root, own state
+├── build-agents/     ← terraform root, own state
+└── jump-hosts/       ← terraform root, own state
+```
+
+**Use when:** The fleet is large enough that category-level isolation is
+valuable, but still managed by one team.
+
+**Pros:** Independent state per category; category-level blast radius; no
+dynamic detection needed.
+
+**Cons:** Adding a category requires a small workflow change.
+
+---
+
+### Strategy 3 – Terragrunt
+
+[Terragrunt](https://terragrunt.gruntwork.io/) is a thin wrapper around
+Terraform that handles multi-directory orchestration natively. The workflow
+calls `terragrunt run-all plan` and it discovers all changed modules
+automatically — no detection logic required at any scale.
+
+**Use when:** You have many categories or sub-teams and want to avoid
+maintaining per-directory workflow jobs entirely.
+
+**Pros:** Fully dynamic; handles dependencies between modules; scales to any
+number of directories.
+
+**Cons:** Additional tool to learn and maintain.
 
 ---
 
