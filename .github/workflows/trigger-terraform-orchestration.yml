@@ -1,8 +1,8 @@
 # Purpose:
-#   - Orchestrate Terraform plan and apply for every business-unit (BU) root
-#     module that was touched by a pull request or merge to main.
-#   - Each BU lives under infrastructure/<bu>/virtual-machines/. Adding a new BU
-#     folder is all that is needed – this workflow detects it automatically.
+#   - Orchestrate Terraform plan and apply for every department root module
+#     that was touched by a pull request or merge to main.
+#   - Each department lives under infrastructure/example/<dept>/. Adding a new
+#     department folder is all that is needed – this workflow detects it automatically.
 #
 # Environment routing:
 #   test  → pull requests to main    (plan + apply)
@@ -17,16 +17,16 @@
 #
 # Subscription routing:
 #   Each GitHub environment holds an Actions variable named SUBSCRIPTION_MAP.
-#   The value is a flat JSON object mapping BU names to the subscription ID
+#   The value is a flat JSON object mapping department names to the subscription ID
 #   for that environment, e.g.:
-#     test → {"example":"<test-sub-id>"}
-#     prod → {"example":"<prod-sub-id>"}
+#     test → {"science":"<test-sub-id>","bizapps":"<test-sub-id>"}
+#     prod → {"science":"<prod-sub-id>","bizapps":"<prod-sub-id>"}
 #   Prod subscription IDs are scoped to the prod environment only. To add a
-#   new BU, add its folder and extend SUBSCRIPTION_MAP in each environment.
+#   new department, add its folder and extend SUBSCRIPTION_MAP in each environment.
 #
 # Backend / variable files:
-#   infrastructure/<bu>/virtual-machines/env/<tier>/<tier>.tfbackend
-#   infrastructure/<bu>/virtual-machines/env/<tier>/<tier>.tfvars
+#   infrastructure/example/<dept>/env/<tier>/<tier>.tfbackend
+#   infrastructure/example/<dept>/env/<tier>/<tier>.tfvars
 
 name: Trigger Terraform Orchestration
 
@@ -42,10 +42,10 @@ on:
     branches:
       - main
     paths:
-      - 'infrastructure/**/virtual-machines/**'
+      - 'infrastructure/example/**'
   pull_request:
     paths:
-      - 'infrastructure/**/virtual-machines/**'
+      - 'infrastructure/example/**'
     types:
       - opened
       - reopened
@@ -86,11 +86,10 @@ jobs:
             BASE_SHA="${{ github.event.before }}"
           fi
 
-          # Collect unique infrastructure/<bu>/virtual-machines paths that changed
+          # Collect unique infrastructure/example/<dept> paths that changed
           DIRS=$(git diff --name-only "$BASE_SHA" "${{ github.sha }}" \
-            | grep '^infrastructure/' \
-            | grep '/virtual-machines/' \
-            | sed 's|/virtual-machines/.*|/virtual-machines|' \
+            | grep '^infrastructure/example/' \
+            | sed 's|^\(infrastructure/example/[^/]*\)/.*|\1|' \
             | sort -u)
 
           if [ -z "$DIRS" ]; then
@@ -100,7 +99,7 @@ jobs:
             # Subscription IDs are resolved later from vars.SUBSCRIPTION_MAP
             # scoped to the target GitHub environment.
             MATRIX=$(printf '%s\n' $DIRS \
-              | jq -R '{directory: ., bu: (split("/") | .[1])}' \
+              | jq -R '{directory: ., bu: (split("/") | .[2])}' \
               | jq -sc .)
             echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
           fi
