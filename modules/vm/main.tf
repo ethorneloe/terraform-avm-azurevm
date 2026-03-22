@@ -1,5 +1,6 @@
 locals {
   rg_name = var.resource_group_name != null ? var.resource_group_name : azurerm_resource_group.this[0].name
+  rg_id   = var.resource_group_name != null ? data.azurerm_resource_group.this[0].id : azurerm_resource_group.this[0].id
 }
 
 resource "azurerm_resource_group" "this" {
@@ -7,6 +8,11 @@ resource "azurerm_resource_group" "this" {
   name     = "rg-${var.name}-${var.environment}"
   location = var.location
   tags     = var.tags
+}
+
+data "azurerm_resource_group" "this" {
+  count = var.resource_group_name != null ? 1 : 0
+  name  = var.resource_group_name
 }
 
 # https://registry.terraform.io/modules/Azure/avm-res-network-networksecuritygroup/azurerm
@@ -52,19 +58,21 @@ module "pip" {
 # https://registry.terraform.io/modules/Azure/avm-res-network-virtualnetwork/azurerm
 module "vnet" {
   source  = "Azure/avm-res-network-virtualnetwork/azurerm"
-  version = "~> 0.8"
+  version = "~> 0.15"
 
-  name                = "vnet-${var.name}-${var.environment}"
-  location            = var.location
-  resource_group_name = local.rg_name
-  address_space       = [var.config.vnet_address_space]
-  enable_telemetry    = true
+  name             = "vnet-${var.name}-${var.environment}"
+  location         = var.location
+  parent_id        = local.rg_id
+  address_space    = [var.config.vnet_address_space]
+  enable_telemetry = true
 
   subnets = {
     snet_vms = {
-      name                      = "snet-vms"
-      address_prefixes          = [var.config.subnet_prefix]
-      network_security_group_id = var.config.enable_public_ip ? module.nsg[0].resource_id : null
+      name             = "snet-vms"
+      address_prefixes = [var.config.subnet_prefix]
+      network_security_group = var.config.enable_public_ip ? {
+        id = module.nsg[0].resource_id
+      } : null
     }
   }
 }
