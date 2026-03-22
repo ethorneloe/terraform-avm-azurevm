@@ -19,6 +19,12 @@ variable "tags" {
   default     = {}
 }
 
+variable "resource_group_name" {
+  type        = string
+  description = "Name of an existing resource group to use. When null, a new resource group named rg-<name>-<env> is created."
+  default     = null
+}
+
 variable "config" {
   description = "VM-specific configuration."
   type = object({

@@ -1,27 +1,28 @@
 # Purpose:
 #   - Orchestrate Terraform plan and apply for every business-unit (BU) root
-#     module that was touched by a push or pull request.
+#     module that was touched by a pull request or merge to main.
 #   - Each BU lives under infrastructure/<bu>/virtual-machines/. Adding a new BU
 #     folder is all that is needed – this workflow detects it automatically.
 #
 # Environment routing:
-#   dev   → non-main branch pushes   (plan + apply)
-#   test  → pull requests to main    (plan + apply, security analysis enabled)
-#   prod  → push to main             (plan + apply, security analysis enabled)
+#   test  → pull requests to main    (plan + apply)
+#   prod  → merge to main            (plan + apply, requires reviewer approval)
 #
 # GitHub Environments (two total):
-#   infra-nonprod  ← used for dev and test tiers (dev/test Entra tenant)
-#   infra-prod     ← used for prod tier (prod Entra tenant)
-#   Each environment holds OIDC secrets for one service principal covering all
-#   BU subscriptions in that tenant:
-#     AZURE_CLIENT_ID, AZURE_TENANT_ID, TF_LOG_LEVEL
-#   infra-prod should have a required-reviewers protection rule.
+#   test  ← pull requests to main
+#   prod  ← merges to main
+#   Each environment holds OIDC secrets for its service principal:
+#     AZURE_CLIENT_ID, AZURE_TENANT_ID, TF_LOG_LEVEL (optional)
+#   prod should have a required-reviewers protection rule.
 #
 # Subscription routing:
-#   Azure subscription IDs are NOT secrets. They are stored per-BU in
-#   infrastructure/subscriptions.json and injected at runtime. To add a new BU,
-#   add its folder and a corresponding entry in subscriptions.json – no GitHub
-#   environment setup required.
+#   Each GitHub environment holds an Actions variable named SUBSCRIPTION_MAP.
+#   The value is a flat JSON object mapping BU names to the subscription ID
+#   for that environment, e.g.:
+#     test → {"example":"<test-sub-id>"}
+#     prod → {"example":"<prod-sub-id>"}
+#   Prod subscription IDs are scoped to the prod environment only. To add a
+#   new BU, add its folder and extend SUBSCRIPTION_MAP in each environment.
 #
 # Backend / variable files:
 #   infrastructure/<bu>/virtual-machines/env/<tier>/<tier>.tfbackend
@@ -38,6 +39,8 @@ permissions:
 
 on:
   push:
+    branches:
+      - main
     paths:
       - 'infrastructure/**/virtual-machines/**'
   pull_request:
@@ -58,7 +61,6 @@ jobs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       env_suffix: ${{ steps.set-env.outputs.env_suffix }}
       github_environment: ${{ steps.set-env.outputs.github_environment }}
-      enable_security_analysis: ${{ steps.set-env.outputs.enable_security_analysis }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -69,16 +71,10 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" == "pull_request" ]; then
             echo "env_suffix=test" >> $GITHUB_OUTPUT
-            echo "github_environment=infra-nonprod" >> $GITHUB_OUTPUT
-            echo "enable_security_analysis=true" >> $GITHUB_OUTPUT
-          elif [ "${{ github.ref }}" == "refs/heads/main" ]; then
-            echo "env_suffix=prod" >> $GITHUB_OUTPUT
-            echo "github_environment=infra-prod" >> $GITHUB_OUTPUT
-            echo "enable_security_analysis=true" >> $GITHUB_OUTPUT
+            echo "github_environment=test" >> $GITHUB_OUTPUT
           else
-            echo "env_suffix=dev" >> $GITHUB_OUTPUT
-            echo "github_environment=infra-nonprod" >> $GITHUB_OUTPUT
-            echo "enable_security_analysis=false" >> $GITHUB_OUTPUT
+            echo "env_suffix=prod" >> $GITHUB_OUTPUT
+            echo "github_environment=prod" >> $GITHUB_OUTPUT
           fi
 
       - name: Detect changed virtual-machines directories
@@ -86,9 +82,6 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" == "pull_request" ]; then
             BASE_SHA="${{ github.event.pull_request.base.sha }}"
-          elif [ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]; then
-            # First push to a new branch – compare with the tip of main
-            BASE_SHA="$(git merge-base HEAD origin/main 2>/dev/null || git rev-list --max-parents=0 HEAD)"
           else
             BASE_SHA="${{ github.event.before }}"
           fi
@@ -103,13 +96,11 @@ jobs:
           if [ -z "$DIRS" ]; then
             echo "matrix=[]" >> $GITHUB_OUTPUT
           else
-            ENV_SUFFIX="${{ steps.set-env.outputs.env_suffix }}"
-            SUBSCRIPTION_MAP=$(cat infrastructure/subscriptions.json)
-
-            # Build a JSON array of {directory, bu, subscription_id} objects
+            # Build a JSON array of {directory, bu} objects.
+            # Subscription IDs are resolved later from vars.SUBSCRIPTION_MAP
+            # scoped to the target GitHub environment.
             MATRIX=$(printf '%s\n' $DIRS \
-              | jq -R --argjson subs "$SUBSCRIPTION_MAP" --arg tier "$ENV_SUFFIX" \
-                '{directory: ., bu: (split("/") | .[1]), subscription_id: ($subs[(split("/") | .[1])][$tier] // "")}' \
+              | jq -R '{directory: ., bu: (split("/") | .[1])}' \
               | jq -sc .)
             echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
           fi
@@ -122,15 +113,16 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJson(needs.detect.outputs.matrix) }}
+    environment: ${{ needs.detect.outputs.github_environment }}
     uses: ./.github/workflows/terraform-orchestration.yml
     secrets: inherit
     concurrency: ${{ matrix.directory }}-${{ needs.detect.outputs.env_suffix }}
     with:
       environment: "${{ needs.detect.outputs.github_environment }}"
-      subscription_id: "${{ matrix.subscription_id }}"
+      subscription_id: "${{ fromJson(vars.SUBSCRIPTION_MAP)[matrix.bu] }}"
       run_tf_apply: true
       working_directory: "./${{ matrix.directory }}"
       tfbackend_filepath: "./env/${{ needs.detect.outputs.env_suffix }}/${{ needs.detect.outputs.env_suffix }}.tfbackend"
       tfvars_filepath: "./env/${{ needs.detect.outputs.env_suffix }}/${{ needs.detect.outputs.env_suffix }}.tfvars"
-      enable_security_analysis: ${{ needs.detect.outputs.enable_security_analysis == 'true' }}
+      enable_security_analysis: true
       artifact_basename: "terraform-plan-${{ matrix.bu }}-${{ needs.detect.outputs.env_suffix }}"

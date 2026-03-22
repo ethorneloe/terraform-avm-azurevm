@@ -41,6 +41,7 @@ module "<vm_name>" {
   tags           = var.tags
   config         = local.<vm_name>
   admin_password = var.admin_password
+  # resource_group_name = "rg-shared"  # omit to auto-create rg-<name>-<env>
 }
 
 # Add these blocks to outputs.tf:

@@ -26,7 +26,7 @@ provider "azurerm" {
   features {}
   resource_provider_registrations = "none"
   # subscription_id is supplied via ARM_SUBSCRIPTION_ID, resolved from
-  # infrastructure/subscriptions.json by the CI/CD workflow at runtime.
+  # the SUBSCRIPTION_MAP repository Actions variable by the CI/CD workflow at runtime.
 }
 
 provider "azapi" {}
