@@ -1,4 +1,9 @@
+locals {
+  rg_name = var.resource_group_name != null ? var.resource_group_name : azurerm_resource_group.this[0].name
+}
+
 resource "azurerm_resource_group" "this" {
+  count    = var.resource_group_name == null ? 1 : 0
   name     = "rg-${var.name}-${var.environment}"
   location = var.location
   tags     = var.tags
@@ -12,8 +17,8 @@ module "nsg" {
   version = "~> 0.5"
 
   name                = "nsg-${var.name}-${var.environment}"
-  location            = azurerm_resource_group.this.location
-  resource_group_name = azurerm_resource_group.this.name
+  location            = var.location
+  resource_group_name = local.rg_name
   enable_telemetry    = true
 
   security_rules = {
@@ -39,8 +44,8 @@ module "pip" {
   version = "~> 0.2"
 
   name                = "pip-${var.name}-${var.environment}"
-  location            = azurerm_resource_group.this.location
-  resource_group_name = azurerm_resource_group.this.name
+  location            = var.location
+  resource_group_name = local.rg_name
   enable_telemetry    = true
 }
 
@@ -50,8 +55,8 @@ module "vnet" {
   version = "~> 0.8"
 
   name                = "vnet-${var.name}-${var.environment}"
-  location            = azurerm_resource_group.this.location
-  resource_group_name = azurerm_resource_group.this.name
+  location            = var.location
+  resource_group_name = local.rg_name
   address_space       = [var.config.vnet_address_space]
   enable_telemetry    = true
 
@@ -70,8 +75,8 @@ module "vm" {
   version = "~> 0.15"
 
   name                = "${var.name}-${var.environment}"
-  resource_group_name = azurerm_resource_group.this.name
-  location            = azurerm_resource_group.this.location
+  resource_group_name = local.rg_name
+  location            = var.location
   os_type             = var.config.os_type
   sku_size            = var.config.vm_size
   zone                = var.config.zone
