@@ -98,8 +98,8 @@ cd terraform-avm-azurevm
 
 ### 2. Fill in the variable files
 
-Edit each `env/<env>/<env>.tfvars` file with the correct subscription ID and tags
-for that environment:
+Edit each `env/<env>/<env>.tfvars` file with the correct location and tags
+for that environment. The subscription ID is set as a GitHub secret per environment — not here:
 
 ```hcl
 # env/dev/dev.tfvars
