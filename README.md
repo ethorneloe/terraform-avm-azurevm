@@ -57,44 +57,37 @@ terraform-avm-azurevm/
 │       └── terraform-apply.yml                  # Reusable – apply pre-approved plan
 │
 ├── infrastructure/
-│   └── virtual-machines/
-│       └── example-vm/             # Reference VM configuration
-│           ├── main.tf             # Resources (VNet, VM via AVM module)
-│           ├── variables.tf        # All input variables with defaults
-│           ├── outputs.tf          # VM ID, name, private IP
-│           ├── providers.tf        # Terraform version, providers, empty backend block
-│           └── env/
-│               ├── dev/
-│               │   ├── dev.tfbackend   # Backend config for dev state file
-│               │   └── dev.tfvars      # Variable values for dev
-│               ├── test/
-│               │   ├── test.tfbackend
-│               │   └── test.tfvars
-│               └── prod/
-│                   ├── prod.tfbackend
-│                   └── prod.tfvars
+│   └── virtual-machines/           # Single Terraform root module – all VMs live here
+│       ├── providers.tf            # Terraform version, providers, empty backend block
+│       ├── variables.tf            # Shared variables (subscription_id, location, environment, tags)
+│       ├── outputs.tf              # Outputs for all VMs
+│       ├── example-vm.tf           # One file per VM – add a new .tf file to add a VM
+│       └── env/
+│           ├── dev/
+│           │   ├── dev.tfbackend   # Backend config for dev state file
+│           │   └── dev.tfvars      # Shared variable values for dev
+│           ├── test/
+│           │   ├── test.tfbackend
+│           │   └── test.tfvars
+│           └── prod/
+│               ├── prod.tfbackend
+│               └── prod.tfvars
 │
 ├── templates/
-│   └── vm/                         # Blank template – copy this for each new VM
-│       ├── main.tf
-│       ├── variables.tf
-│       ├── outputs.tf
-│       ├── providers.tf
-│       └── env/
-│           ├── dev/  (dev.tfbackend, dev.tfvars)
-│           ├── test/ (test.tfbackend, test.tfvars)
-│           └── prod/ (prod.tfbackend, prod.tfvars)
+│   └── vm.tf                       # Copy to infrastructure/virtual-machines/<vm-name>.tf
 │
 ├── .gitignore
 ├── LICENSE
 └── README.md
 ```
 
-**One folder = one VM.**
-Each VM folder is a self-contained Terraform root module. Environment-specific
-configuration (backend location, variable values) lives in the `env/` subfolder.
-Backend credentials are never hardcoded – they are passed to `terraform init` at
-runtime via `-backend-config`.
+**One file per VM, one Terraform root module for all VMs.**
+Each VM is a single `.tf` file. VM-specific values (name, size, image) are
+hardcoded as locals inside the file; `var.environment` is used to construct
+environment-aware resource names. The shared `env/` folder provides the
+backend location and cross-cutting variable values (subscription, tags) per
+environment. Backend config is never hardcoded – it is passed to `terraform init`
+via `-backend-config`.
 
 ---
 
@@ -129,18 +122,14 @@ az account set --subscription "<your-subscription-id>"
 
 ### 3. Fill in the environment variable files
 
-Navigate to the example VM's dev environment:
-
 ```bash
-cd infrastructure/virtual-machines/example-vm
+cd infrastructure/virtual-machines
 ```
 
-Edit `env/dev/dev.tfvars` and fill in your values:
+Edit `env/dev/dev.tfvars` and fill in your subscription ID:
 
 ```hcl
-subscription_id     = "00000000-0000-0000-0000-000000000000"
-resource_group_name = "rg-example-vm-dev"
-vm_name             = "example-vm-dev"
+subscription_id = "00000000-0000-0000-0000-000000000000"
 ```
 
 Edit `env/dev/dev.tfbackend` with your storage account details:
@@ -149,7 +138,7 @@ Edit `env/dev/dev.tfbackend` with your storage account details:
 resource_group_name  = "rg-tfstate"
 storage_account_name = "satfstate<unique-suffix>"
 container_name       = "tfstate"
-key                  = "example-vm-dev.terraform.tfstate"
+key                  = "virtual-machines-dev.terraform.tfstate"
 ```
 
 > The `env/` files **are** committed to the repo – they contain non-sensitive
@@ -166,20 +155,18 @@ terraform init -backend-config=env/dev/dev.tfbackend
 ### 5. Plan and apply
 
 ```bash
-terraform plan -var-file=env/dev/dev.tfvars
+terraform plan  -var-file=env/dev/dev.tfvars
 terraform apply -var-file=env/dev/dev.tfvars
 ```
 
-Type `yes` when prompted. Terraform will create:
+Type `yes` when prompted. Terraform will create all resources defined across
+all `*.tf` files in the directory — including the example VM's resource group,
+virtual network, subnet, and the VM itself.
 
-- A resource group
-- A virtual network and subnet (if `create_vnet = true`)
-- A virtual machine via the AVM module
-
-### 6. Get the VM's private IP
+### 6. Get outputs
 
 ```bash
-terraform output private_ip_address
+terraform output example_vm_private_ip
 ```
 
 ---
@@ -187,57 +174,39 @@ terraform output private_ip_address
 ## Adding a New VM
 
 ```bash
-# 1. Copy the template
-cp -r templates/vm infrastructure/virtual-machines/<new-vm-name>
-cd infrastructure/virtual-machines/<new-vm-name>
+# 1. Copy the template file
+cp templates/vm.tf infrastructure/virtual-machines/<new-vm-name>.tf
 
-# 2. Fill in each environment's variable file
-#    Replace all <placeholder> values in env/dev/dev.tfvars, env/test/test.tfvars, env/prod/prod.tfvars
+# 2. Replace all occurrences of <vm-name> and <vm_name> in the file
+#    <vm-name>  → kebab-case name used in resource names  (e.g. web-server)
+#    <vm_name>  → snake_case name used in HCL identifiers (e.g. web_server)
 
-# 3. Update each environment's backend key
-#    env/dev/dev.tfbackend   → key = "<new-vm-name>-dev.terraform.tfstate"
-#    env/test/test.tfbackend → key = "<new-vm-name>-test.terraform.tfstate"
-#    env/prod/prod.tfbackend → key = "<new-vm-name>-prod.terraform.tfstate"
+# 3. Adjust the locals block – size, image, CIDR, etc.
 
-# 4. Initialise and deploy (dev environment example)
-terraform init -backend-config=env/dev/dev.tfbackend
-terraform plan  -var-file=env/dev/dev.tfvars
-terraform apply -var-file=env/dev/dev.tfvars
+# 4. Add output blocks to outputs.tf (template shows the exact blocks to add)
+
+# 5. Plan to verify (re-init not needed unless providers changed)
+cd infrastructure/virtual-machines
+terraform plan -var-file=env/dev/dev.tfvars
 ```
 
-Each VM has its own state file per environment, so VMs and environments are
-completely independent of each other.
+No changes to workflows, backends, or variable files are needed – Terraform
+picks up the new file automatically on the next run.
 
 ---
 
 ## Variable Reference
 
+These shared variables are defined in `variables.tf` and set in the `env/<env>/<env>.tfvars` files.
+VM-specific settings (name, size, image, networking CIDRs) are hardcoded as locals
+inside each `<vm-name>.tf` file.
+
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
 | `subscription_id` | string | – | **Required.** Azure subscription ID. |
-| `location` | string | `"uksouth"` | Azure region. |
-| `resource_group_name` | string | – | **Required.** Name of the resource group to create. |
+| `location` | string | `"uksouth"` | Azure region for all resources. |
+| `environment` | string | – | **Required.** `dev`, `test`, or `prod`. Used to construct all resource names. |
 | `tags` | map(string) | `{}` | Tags applied to all resources. |
-| `create_vnet` | bool | `true` | Create a new VNet/Subnet. Set `false` + supply `existing_subnet_id` for brownfield. |
-| `vnet_name` | string | `"vnet-main"` | VNet name (only when `create_vnet = true`). |
-| `vnet_address_space` | string | `"10.0.0.0/16"` | VNet CIDR (only when `create_vnet = true`). |
-| `subnet_name` | string | `"snet-vms"` | Subnet name (only when `create_vnet = true`). |
-| `subnet_address_prefix` | string | `"10.0.1.0/24"` | Subnet CIDR (only when `create_vnet = true`). |
-| `existing_subnet_id` | string | `null` | Full resource ID of an existing subnet (only when `create_vnet = false`). |
-| `vm_name` | string | – | **Required.** VM name. |
-| `os_type` | string | `"Linux"` | `"Linux"` or `"Windows"`. |
-| `vm_size` | string | `"Standard_B2s"` | Azure VM SKU. |
-| `image_publisher` | string | `"Canonical"` | Marketplace image publisher. |
-| `image_offer` | string | `"0001-com-ubuntu-server-jammy"` | Marketplace image offer. |
-| `image_sku` | string | `"22_04-lts-gen2"` | Marketplace image SKU. |
-| `os_disk_type` | string | `"StandardSSD_LRS"` | OS disk storage tier. |
-| `admin_username` | string | `"azureadmin"` | VM administrator username. |
-| `generate_admin_credentials` | bool | `true` | Let AVM auto-generate and store credentials. |
-| `admin_password` | string | `null` | Admin password (only when `generate_admin_credentials = false`). |
-| `disable_password_auth` | bool | `true` | Linux: disable password auth (use SSH keys). |
-| `enable_system_identity` | bool | `false` | Assign a system-assigned managed identity. |
-| `enable_boot_diagnostics` | bool | `true` | Enable boot diagnostics. |
-| `enable_telemetry` | bool | `true` | AVM telemetry. |
 
 ---
 

@@ -1,4 +1,4 @@
 resource_group_name  = "rg-tfstate"
 storage_account_name = "satfstate<unique-suffix>"
 container_name       = "tfstate"
-key                  = "example-vm-dev.terraform.tfstate"
+key                  = "virtual-machines-test.terraform.tfstate"
