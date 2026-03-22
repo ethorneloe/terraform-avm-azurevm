@@ -1,0 +1,215 @@
+# Purpose:
+#   - To automate and standardize Terraform plan and analysis operations across multiple environments.
+#   - Support optional security analysis for comprehensive infrastructure validation.
+#
+# Main Steps:
+#   1. Checkout Repository.
+#   2. Setup Terraform:
+#       - Installs the default or specified version of Terraform to ensure version consistency.
+#   3. Initialize Terraform:
+#       - Runs terraform init with the provided backend configuration to prepare the working directory.
+#   4. Terraform Validate:
+#       - Validates the Terraform configuration files for syntax and internal consistency.
+#   5. Terraform fmt:
+#       - Checks the formatting of Terraform files to ensure they comply with standards.
+#   6. Terraform Plan:
+#       - Generates a Terraform execution plan, optionally using variables files.
+#   7. Upload Plan Files:
+#       - Uploads the Terraform plan files as GitHub Actions artifacts (encrypted at rest by GitHub).
+#       - Includes both binary plan file and human-readable text output.
+#       - Artifacts retained for 7 days with automatic cleanup.
+#   8. Post Plan to Pull Request (if triggered by PR):
+#       - Posts the Terraform plan output as a comment on the pull request.
+#       - Updates existing comment if one already exists for this environment.
+#       - Truncates output if it exceeds GitHub's comment size limit.
+#
+# Prerequisites:
+#   - GitHub Secrets for Azure credentials are properly configured for OIDC authentication.
+#   - Terraform configurations and backend settings exist in the specified working directory.
+#
+# Usage:
+#   - Invoke this workflow using workflow_call from another workflow.
+#   - Ensure all required inputs are provided when triggering this workflow.
+#   - Adjust the optional inputs as needed for your specific use case.
+
+name: Terraform Analyze and Plan
+
+permissions:
+  id-token: write        # Needed for OIDC authentication
+  contents: read         # Needed for the checkout action
+  actions: read          # Needed for the upload-sarif action
+  security-events: write # Needed for the upload-sarif action
+  pull-requests: write   # Needed to post plan output as PR comment
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "GitHub Environment"
+        required: true
+        type: string
+      plan_filename:
+        description: "Name of the Terraform plan file"
+        required: true
+        type: string
+      working_directory:
+        description: "Working directory for Terraform configurations"
+        required: true
+        type: string
+      terraform_version:
+        description: "Version of Terraform to use"
+        required: false
+        type: string
+        default: ""
+      enable_security_analysis:
+        description: "Toggle the security analysis step"
+        required: true
+        type: boolean
+      artifact_basename:
+        required: true
+        type: string
+      tfbackend_filepath:
+        description: "Path to the Terraform backend configuration file"
+        required: true
+        type: string
+      tfvars_filepath:
+        description: "Name of the Terraform variables file"
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  analyze-and-plan:
+
+    env:
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_USE_OIDC: true
+      ARM_USE_AZUREAD: true # Needed for using OIDC to access the Azure storage account backend
+      TF_LOG: ${{ secrets.TF_LOG_LEVEL }}
+
+    runs-on: ubuntu-latest
+
+    environment: ${{ inputs.environment }}
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform (Default Version)
+        if : ${{ inputs.terraform_version == '' }}
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Setup Terraform (Specific Version)
+        if : ${{ inputs.terraform_version != '' }}
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.terraform_version }}
+
+      - name: Terraform Init
+        run: |
+          terraform init -input=false -backend-config=${{ inputs.tfbackend_filepath }}
+
+      - name: Terraform Validate
+        run: |
+          terraform validate
+
+      - name: Terraform fmt
+        id: fmt
+        run: terraform fmt -check -recursive
+        continue-on-error: true
+
+      # Run plan with tfvars file if provided otherwise run without
+      - name: Terraform Plan
+        run: |
+          if [ -n "${{ inputs.tfvars_filepath }}" ]; then
+            terraform plan -input=false -out="${{ inputs.plan_filename }}" -var-file="${{ inputs.tfvars_filepath }}" -no-color > "${{ inputs.plan_filename }}.txt"
+          else
+            terraform plan -input=false -out="${{ inputs.plan_filename }}" -no-color > "${{ inputs.plan_filename }}.txt"
+          fi
+
+      - name: Upload Plan Files
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_basename }}
+          path: ${{ inputs.working_directory }}/${{ inputs.plan_filename }}
+          retention-days: 7
+
+      - name: Upload Plan Text Files
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_basename }}-txt
+          path: ${{ inputs.working_directory }}/${{ inputs.plan_filename }}.txt
+          retention-days: 7
+
+      - name: Post Plan to Pull Request
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            // Read the plan output file
+            const fs = require('fs');
+            const planPath = '${{ inputs.working_directory }}/${{ inputs.plan_filename }}.txt';
+            const plan = fs.readFileSync(planPath, 'utf8');
+
+            // Truncate if too long (GitHub has a 65536 character limit for comments)
+            const maxLength = 65000;
+            let planOutput = plan;
+            let truncated = false;
+
+            if (plan.length > maxLength) {
+              planOutput = plan.substring(0, maxLength);
+              truncated = true;
+            }
+
+            // Create the comment body
+            const output = `#### Terraform Plan for \`${{ inputs.environment }}\` 📝
+            <details><summary>Show Plan</summary>
+
+            \`\`\`terraform
+            ${planOutput}
+            \`\`\`
+
+            </details>
+
+            ${truncated ? '*Plan output truncated. Download the full plan from artifacts.*' : ''}
+
+            **Working Directory:** \`${{ inputs.working_directory }}\`
+            **Plan File:** \`${{ inputs.plan_filename }}\`
+            **Artifact:** \`${{ inputs.artifact_basename }}\`
+
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
+
+            // Post or update the comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(comment => {
+              return comment.user.type === 'Bot' && comment.body.includes('Terraform Plan for `${{ inputs.environment }}`')
+            });
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: output
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: output
+              });
+            }

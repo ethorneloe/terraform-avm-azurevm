@@ -1,0 +1,109 @@
+# Purpose:
+#   - To simplify and standardize terraform apply operations across multiple environments.
+#   - Apply pre-approved Terraform plans with environment protection rules and approval gates.
+#
+# Main Steps:
+#   1. Checkout Repository:
+#       - Clones the repository to access the necessary Terraform configuration files.
+#   2. Setup Terraform:
+#       - Installs the specified version of Terraform to ensure version consistency.
+#   3. Initialize Terraform:
+#       - Runs terraform init with the provided backend configuration to prepare the working directory.
+#   4. Download Terraform Plan:
+#       - Downloads the Terraform plan artifact from the previous analyze-and-plan job.
+#   5. Apply Terraform Plan:
+#       - Executes terraform apply with the plan file to deploy the infrastructure changes.
+#
+# Prerequisites:
+#   - GitHub Secrets for Azure credentials are properly configured for OIDC authentication.
+#   - Terraform configurations and backend settings exist in the specified working directory.
+#   - GitHub Environment protection rules configured for approval gates (if required).
+#
+# Usage:
+#   - Invoke this workflow using workflow_call from another workflow.
+#   - Ensure all required inputs are provided when triggering this workflow.
+#   - Adjust the optional inputs as needed for your specific use case.
+
+name: Terraform Apply
+
+permissions:
+  id-token: write        # Needed for OIDC authentication
+  contents: read         # Needed for the checkout action
+  actions: read          # Needed for the upload-sarif action
+  security-events: write # Needed for the upload-sarif action
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "GitHub Environment"
+        required: true
+        type: string
+      plan_filename:
+        description: "Name of the Terraform plan file"
+        required: true
+        type: string
+      working_directory:
+        description: "Working directory for Terraform configurations"
+        required: true
+        type: string
+      terraform_version:
+        description: "Version of Terraform to use"
+        required: false
+        type: string
+        default: ""
+      artifact_basename:
+        required: true
+        type: string
+      tfbackend_filepath:
+        description: "Path to the Terraform backend configuration file"
+        required: true
+        type: string
+      tfvars_filepath:
+        description: "Name of the Terraform variables file"
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  apply:
+
+    env:
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_USE_OIDC: true
+      ARM_USE_AZUREAD: true # Needed for using OIDC to access the Azure storage account backend
+      TF_LOG: ${{ secrets.TF_LOG_LEVEL }}
+
+    runs-on: ubuntu-latest
+
+    environment: ${{ inputs.environment }}
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.terraform_version }}
+
+      - name: Terraform Init
+        run: |
+          terraform init -input=false -backend-config=${{ inputs.tfbackend_filepath }}
+
+      - name: Download Terraform Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact_basename }}
+          path: ${{ inputs.working_directory }}
+
+      - name: Apply Terraform Plan
+        run: |
+          terraform apply -input=false -auto-approve ${{ inputs.plan_filename }}

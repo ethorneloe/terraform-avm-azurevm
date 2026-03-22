@@ -1,0 +1,83 @@
+# Purpose:
+#   - To orchestrate code analysis, Terraform plan, and optional apply steps for
+#     the virtual-machines root module across dev, test, and prod environments.
+#   - All VM configurations live in a single Terraform root module
+#     (infrastructure/virtual-machines/), so no directory detection is needed –
+#     Terraform itself determines what changed and what to update.
+#
+# Environment routing:
+#   dev   → non-main branch pushes   (plan + apply)
+#   test  → pull requests to main    (plan only, security analysis enabled)
+#   prod  → push to main             (plan + apply, security analysis enabled)
+#
+# Prerequisites:
+#   - GitHub Secrets: AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, TF_LOG_LEVEL
+#   - GitHub Environments: dev, test, prod
+#     (prod should have a required-reviewers protection rule)
+#   - Backend config and variable values in infrastructure/virtual-machines/env/<env>/
+#
+# Notes:
+#   - Expressions are not supported in the "with" section for reusable workflows.
+
+name: Trigger Terraform Orchestration
+
+permissions:
+  id-token: write        # Needed for OIDC authentication
+  contents: read         # Needed for the checkout action
+  actions: read          # Needed for the upload-sarif action
+  security-events: write # Needed for the upload-sarif action
+  pull-requests: write   # Needed to post Terraform plan as PR comment
+
+on:
+  push:
+    paths:
+      - 'infrastructure/virtual-machines/**'
+  pull_request:
+    paths:
+      - 'infrastructure/virtual-machines/**'
+    types:
+      - opened
+      - reopened
+      - synchronize
+    branches:
+      - main
+
+jobs:
+  dev:
+    if: github.ref != 'refs/heads/main' && github.event_name == 'push'
+    uses: ./.github/workflows/terraform-orchestration.yml
+    secrets: inherit
+    concurrency: dev_infra
+    with:
+      environment: "dev"
+      run_tf_apply: true
+      working_directory: ./infrastructure/virtual-machines
+      tfbackend_filepath: ./env/dev/dev.tfbackend
+      tfvars_filepath: ./env/dev/dev.tfvars
+      enable_security_analysis: false
+
+  test:
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/terraform-orchestration.yml
+    secrets: inherit
+    concurrency: test_infra
+    with:
+      environment: "test"
+      run_tf_apply: false
+      working_directory: ./infrastructure/virtual-machines
+      tfbackend_filepath: ./env/test/test.tfbackend
+      tfvars_filepath: ./env/test/test.tfvars
+      enable_security_analysis: true
+
+  prod:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    uses: ./.github/workflows/terraform-orchestration.yml
+    secrets: inherit
+    concurrency: prod_infra
+    with:
+      environment: "prod"
+      run_tf_apply: true
+      working_directory: ./infrastructure/virtual-machines
+      tfbackend_filepath: ./env/prod/prod.tfbackend
+      tfvars_filepath: ./env/prod/prod.tfvars
+      enable_security_analysis: true
