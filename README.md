@@ -186,7 +186,7 @@ Terraform is handled entirely by the workflows. You never need to run
 | Git event | Environment | Apply? |
 |-----------|-------------|--------|
 | Push to any non-main branch | `dev` | Yes |
-| Pull request to `main` | `test` | No — plan only |
+| Pull request to `main` | `test` | Yes |
 | Push / merge to `main` | `prod` | Yes — requires reviewer approval |
 
 ### GitHub Environments
@@ -324,6 +324,11 @@ valuable, but still managed by one team.
 **Pros:** Independent state per category; category-level blast radius.
 
 **Cons:** Adding a category requires a small workflow change.
+
+**Multiple subscriptions:** If different categories target different Azure
+subscriptions, add a subscription secret per category to each GitHub environment
+(e.g. `AZURE_SUBSCRIPTION_ID_WEB_SERVERS`, `AZURE_SUBSCRIPTION_ID_BUILD_AGENTS`)
+and reference the appropriate secret in each workflow job.
 
 ---
 
