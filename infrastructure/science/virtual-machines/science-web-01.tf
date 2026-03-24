@@ -33,7 +33,7 @@ module "science_web_01" {
 
   name                = "science-web-01"
   environment         = var.environment
-  location            = "eastus"
+  location            = var.location
   resource_group_name = "rg-science-vms"
   tags                = merge(var.tags, { team = "science", cost-center = "research" })
   config              = local.science_web_01

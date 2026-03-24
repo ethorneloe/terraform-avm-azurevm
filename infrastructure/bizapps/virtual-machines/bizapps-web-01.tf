@@ -33,7 +33,7 @@ module "bizapps_web_01" {
 
   name                = "bizapps-web-01"
   environment         = var.environment
-  location            = "westeurope"
+  location            = var.location
   resource_group_name = "rg-bizapps-vms"
   tags                = merge(var.tags, { team = "bizapps", cost-center = "operations" })
   config              = local.bizapps_web_01
