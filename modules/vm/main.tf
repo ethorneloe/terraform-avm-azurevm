@@ -82,13 +82,14 @@ module "vm" {
   source  = "Azure/avm-res-compute-virtualmachine/azurerm"
   version = "~> 0.15"
 
-  name                = "${var.name}-${var.environment}"
-  resource_group_name = local.rg_name
-  location            = var.location
-  os_type             = var.config.os_type
-  sku_size            = var.config.vm_size
-  zone                = var.config.zone
-  enable_telemetry    = true
+  name                       = "${var.name}-${var.environment}"
+  resource_group_name        = local.rg_name
+  location                   = var.location
+  os_type                    = var.config.os_type
+  sku_size                   = var.config.vm_size
+  zone                       = var.config.zone
+  enable_telemetry           = true
+  encryption_at_host_enabled = false # demo only – requires Microsoft.Compute/EncryptionAtHost feature registration for production use
 
   source_image_reference = {
     publisher = var.config.image.publisher

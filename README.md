@@ -353,6 +353,21 @@ selecting the App Registration by name as the principal.
 > assignments in that case. Per-resource-group assignments are only needed when the
 > service principal's subscription-level access is restricted.
 
+#### 4. Register the EncryptionAtHost feature (production only)
+
+This repo disables encryption at host (`encryption_at_host_enabled = false`) for
+demo convenience. For production use, enable it instead by registering the feature
+on each BU subscription:
+
+```bash
+az feature register --namespace Microsoft.Compute --name EncryptionAtHost
+az provider register --namespace Microsoft.Compute
+# Wait until state = Registered
+az feature show --namespace Microsoft.Compute --name EncryptionAtHost --query properties.state
+```
+
+Then set `encryption_at_host_enabled = true` in `modules/vm/main.tf`.
+
 ---
 
 ## Variable Reference
