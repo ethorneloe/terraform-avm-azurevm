@@ -8,10 +8,10 @@
 
 locals {
   bizapps_web_01 = {
-    vnet_address_space      = "10.2.0.0/16"
-    subnet_prefix           = "10.2.1.0/24"
-    vm_size                 = "Standard_B4ms"   # burstable — steady-state business apps
-    os_type                 = "Windows"
+    vnet_address_space = "10.2.0.0/16"
+    subnet_prefix      = "10.2.1.0/24"
+    vm_size            = "Standard_B4ms" # burstable — steady-state business apps
+    os_type            = "Windows"
     image = {
       publisher = "MicrosoftWindowsServer"
       offer     = "WindowsServer"
@@ -22,9 +22,9 @@ locals {
     disable_password_auth   = false # Windows requires password auth
     enable_system_identity  = false
     enable_boot_diagnostics = true
-    zone                    = null  # "1", "2", or "3" for zonal deployments
+    zone                    = null # "1", "2", or "3" for zonal deployments
     enable_public_ip        = false
-    allowed_cidrs           = []    # set to specific CIDRs (e.g. ["203.0.113.10/32"]) to enable RDP access
+    allowed_cidrs           = [] # set to specific CIDRs (e.g. ["203.0.113.10/32"]) to enable RDP access
   }
 }
 

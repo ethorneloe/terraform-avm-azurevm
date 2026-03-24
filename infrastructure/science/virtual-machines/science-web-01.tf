@@ -8,10 +8,10 @@
 
 locals {
   science_web_01 = {
-    vnet_address_space      = "10.1.0.0/16"
-    subnet_prefix           = "10.1.1.0/24"
-    vm_size                 = "Standard_D4s_v3" # memory-optimised for data workloads
-    os_type                 = "Linux"
+    vnet_address_space = "10.1.0.0/16"
+    subnet_prefix      = "10.1.1.0/24"
+    vm_size            = "Standard_D4s_v3" # memory-optimised for data workloads
+    os_type            = "Linux"
     image = {
       publisher = "Canonical"
       offer     = "0001-com-ubuntu-server-jammy"
@@ -20,11 +20,11 @@ locals {
     os_disk_type            = "Premium_LRS"
     admin_username          = "azureadmin"
     disable_password_auth   = true
-    enable_system_identity  = true  # allows access to Key Vault, Storage, etc.
+    enable_system_identity  = true # allows access to Key Vault, Storage, etc.
     enable_boot_diagnostics = true
-    zone                    = "1"   # pin to zone 1 for data-locality
+    zone                    = "1" # pin to zone 1 for data-locality
     enable_public_ip        = false
-    allowed_cidrs           = []    # set to specific CIDRs (e.g. ["203.0.113.10/32"]) to enable SSH access
+    allowed_cidrs           = [] # set to specific CIDRs (e.g. ["203.0.113.10/32"]) to enable SSH access
   }
 }
 
