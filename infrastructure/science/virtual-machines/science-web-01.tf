@@ -29,7 +29,7 @@ locals {
 }
 
 module "science_web_01" {
-  source = "../../../../modules/vm"
+  source = "../../../modules/vm"
 
   name                = "science-web-01"
   environment         = var.environment
