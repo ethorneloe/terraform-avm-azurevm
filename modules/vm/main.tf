@@ -82,7 +82,7 @@ module "vm" {
   source  = "Azure/avm-res-compute-virtualmachine/azurerm"
   version = "~> 0.15"
 
-  name                       = "${var.name}-${var.environment}"
+  name                       = var.name
   resource_group_name        = local.rg_name
   location                   = var.location
   os_type                    = var.config.os_type
