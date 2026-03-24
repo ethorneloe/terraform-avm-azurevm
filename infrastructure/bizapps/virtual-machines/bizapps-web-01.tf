@@ -4,7 +4,6 @@
 # Business Applications web VM — ERP, CRM, and internal tooling workloads.
 # Copy this file and rename it to add another VM for the BizApps team.
 # All values specific to this VM are defined in the locals block below.
-# test
 ###############################################################################
 
 locals {
