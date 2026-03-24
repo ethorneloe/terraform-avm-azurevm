@@ -1,4 +1,4 @@
-resource_group_name  = "rg-tfstate"
-storage_account_name = "satfstate<unique-suffix>"
-container_name       = "tfstate"
+resource_group_name  = "rg-tf-avm-demo"
+storage_account_name = "tfavmdemo"
+container_name       = "tfstate-test"
 key                  = "bizapps-test.terraform.tfstate"

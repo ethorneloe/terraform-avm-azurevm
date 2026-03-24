@@ -1,4 +1,4 @@
 resource_group_name  = "rg-tfstate"
-storage_account_name = "satfstate<unique-suffix>"
+storage_account_name = "sa-tfstate-prod"
 container_name       = "tfstate"
 key                  = "bizapps-prod.terraform.tfstate"
