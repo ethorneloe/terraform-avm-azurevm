@@ -125,7 +125,7 @@ module "vm" {
   }
 
   managed_identities = var.config.enable_system_identity ? { system_assigned = true } : null
-  boot_diagnostics   = var.config.enable_boot_diagnostics ? {} : null
+  boot_diagnostics   = var.config.enable_boot_diagnostics
 
   tags = var.tags
 }
