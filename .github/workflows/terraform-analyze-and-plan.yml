@@ -135,9 +135,9 @@ jobs:
       - name: Terraform Plan
         run: |
           if [ -n "${{ inputs.tfvars_filepath }}" ]; then
-            terraform plan -input=false -out="${{ inputs.plan_filename }}" -var-file="${{ inputs.tfvars_filepath }}" -no-color | tee "${{ inputs.plan_filename }}.txt"
+            terraform plan -input=false -out="${{ inputs.plan_filename }}" -var="environment=${{ inputs.environment }}" -var-file="${{ inputs.tfvars_filepath }}" -no-color | tee "${{ inputs.plan_filename }}.txt"
           else
-            terraform plan -input=false -out="${{ inputs.plan_filename }}" -no-color | tee "${{ inputs.plan_filename }}.txt"
+            terraform plan -input=false -out="${{ inputs.plan_filename }}" -var="environment=${{ inputs.environment }}" -no-color | tee "${{ inputs.plan_filename }}.txt"
           fi
 
       - name: Upload Plan Files
