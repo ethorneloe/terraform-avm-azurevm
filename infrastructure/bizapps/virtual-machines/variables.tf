@@ -7,7 +7,6 @@
 variable "location" {
   type        = string
   description = "Azure region for all resources, e.g. \"uksouth\"."
-  default     = "uksouth"
 }
 
 variable "environment" {

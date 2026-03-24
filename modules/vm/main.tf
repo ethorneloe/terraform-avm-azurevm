@@ -82,13 +82,14 @@ module "vm" {
   source  = "Azure/avm-res-compute-virtualmachine/azurerm"
   version = "~> 0.15"
 
-  name                = "${var.name}-${var.environment}"
-  resource_group_name = local.rg_name
-  location            = var.location
-  os_type             = var.config.os_type
-  sku_size            = var.config.vm_size
-  zone                = var.config.zone
-  enable_telemetry    = true
+  name                       = var.name
+  resource_group_name        = local.rg_name
+  location                   = var.location
+  os_type                    = var.config.os_type
+  sku_size                   = var.config.vm_size
+  zone                       = var.config.zone
+  enable_telemetry           = true
+  encryption_at_host_enabled = false # demo only – requires Microsoft.Compute/EncryptionAtHost feature registration for production use
 
   source_image_reference = {
     publisher = var.config.image.publisher
@@ -121,11 +122,11 @@ module "vm" {
       password                           = var.config.disable_password_auth ? null : var.admin_password
       generate_admin_password_or_ssh_key = var.admin_password == null || var.config.disable_password_auth
     }
-    password_authentication_disabled = var.config.disable_password_auth
+    password_authentication_disabled = var.config.os_type == "Linux" ? var.config.disable_password_auth : null
   }
 
   managed_identities = var.config.enable_system_identity ? { system_assigned = true } : null
-  boot_diagnostics   = var.config.enable_boot_diagnostics ? {} : null
+  boot_diagnostics   = var.config.enable_boot_diagnostics
 
   tags = var.tags
 }

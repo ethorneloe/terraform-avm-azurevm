@@ -78,8 +78,8 @@ on:
         required: false
         type: string
         default: ""
-      subscription_id:
-        description: "Azure subscription ID for this BU and tier"
+      bu:
+        description: "Business unit name, used to look up the subscription ID from vars.SUBSCRIPTION_MAP"
         required: true
         type: string
 
@@ -88,7 +88,7 @@ jobs:
 
     env:
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-      ARM_SUBSCRIPTION_ID: ${{ inputs.subscription_id }}
+      ARM_SUBSCRIPTION_ID: ${{ fromJson(vars.SUBSCRIPTION_MAP)[inputs.bu] }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       ARM_USE_OIDC: true
       ARM_USE_AZUREAD: true # Needed for using OIDC to access the Azure storage account backend
@@ -135,9 +135,9 @@ jobs:
       - name: Terraform Plan
         run: |
           if [ -n "${{ inputs.tfvars_filepath }}" ]; then
-            terraform plan -input=false -out="${{ inputs.plan_filename }}" -var-file="${{ inputs.tfvars_filepath }}" -no-color > "${{ inputs.plan_filename }}.txt"
+            terraform plan -input=false -out="${{ inputs.plan_filename }}" -var="environment=${{ inputs.environment }}" -var-file="${{ inputs.tfvars_filepath }}" -no-color | tee "${{ inputs.plan_filename }}.txt"
           else
-            terraform plan -input=false -out="${{ inputs.plan_filename }}" -no-color > "${{ inputs.plan_filename }}.txt"
+            terraform plan -input=false -out="${{ inputs.plan_filename }}" -var="environment=${{ inputs.environment }}" -no-color | tee "${{ inputs.plan_filename }}.txt"
           fi
 
       - name: Upload Plan Files

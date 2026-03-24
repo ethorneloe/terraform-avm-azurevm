@@ -28,10 +28,10 @@ variable "resource_group_name" {
 variable "config" {
   description = "VM-specific configuration."
   type = object({
-    vnet_address_space      = string
-    subnet_prefix           = string
-    vm_size                 = string
-    os_type                 = string
+    vnet_address_space = string
+    subnet_prefix      = string
+    vm_size            = string
+    os_type            = string
     image = object({
       publisher = string
       offer     = string

@@ -65,8 +65,8 @@ on:
         required: false
         type: string
         default: ""
-      subscription_id:
-        description: "Azure subscription ID for this BU and tier"
+      bu:
+        description: "Business unit name, used to look up the subscription ID from vars.SUBSCRIPTION_MAP"
         required: true
         type: string
 
@@ -75,7 +75,7 @@ jobs:
 
     env:
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-      ARM_SUBSCRIPTION_ID: ${{ inputs.subscription_id }}
+      ARM_SUBSCRIPTION_ID: ${{ fromJson(vars.SUBSCRIPTION_MAP)[inputs.bu] }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       ARM_USE_OIDC: true
       ARM_USE_AZUREAD: true # Needed for using OIDC to access the Azure storage account backend
