@@ -121,7 +121,7 @@ module "vm" {
       password                           = var.config.disable_password_auth ? null : var.admin_password
       generate_admin_password_or_ssh_key = var.admin_password == null || var.config.disable_password_auth
     }
-    password_authentication_disabled = var.config.disable_password_auth
+    password_authentication_disabled = var.config.os_type == "Linux" ? var.config.disable_password_auth : null
   }
 
   managed_identities = var.config.enable_system_identity ? { system_assigned = true } : null

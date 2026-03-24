@@ -57,19 +57,22 @@ terraform-avm-azurevm/
 │       └── terraform-apply.yml                  # Reusable – apply pre-approved plan
 │
 ├── infrastructure/
-│   └── example/                    # One folder per business unit (BU)
-│       └── virtual-machines/       # Terraform root module for this BU's VMs
-│           ├── providers.tf        # Terraform version, providers, empty backend block
-│           ├── variables.tf        # Shared variables (location, environment, tags)
-│           ├── outputs.tf          # Outputs for all VMs in this BU
-│           ├── example-vm.tf       # One file per VM – locals + child module call
-│           └── env/
-│               ├── test/
-│               │   ├── test.tfbackend  # Backend config for test state file
-│               │   └── test.tfvars     # Shared variable values for test
-│               └── prod/
-│                   ├── prod.tfbackend
-│                   └── prod.tfvars
+│   ├── bizapps/                    # One folder per business unit (BU)
+│   │   └── virtual-machines/       # Terraform root module for this BU's VMs
+│   │       ├── providers.tf        # Terraform version, providers, empty backend block
+│   │       ├── variables.tf        # Shared variables (location, environment, tags)
+│   │       ├── outputs.tf          # Outputs for all VMs in this BU
+│   │       ├── bizapps-web-01.tf   # One file per VM – locals + child module call
+│   │       └── env/
+│   │           ├── test/
+│   │           │   ├── test.tfbackend  # Backend config for test state file
+│   │           │   └── test.tfvars     # Shared variable values for test
+│   │           └── prod/
+│   │               ├── prod.tfbackend
+│   │               └── prod.tfvars
+│   └── science/                    # Additional BU – same structure
+│       └── virtual-machines/
+│           └── ...
 │
 ├── modules/
 │   └── vm/                         # Shared child module – all resource logic lives here
@@ -223,9 +226,9 @@ No changes to workflows, backends, or variable files needed.
 mkdir -p infrastructure/<bu-name>/virtual-machines/env/{test,prod}
 
 # 2. Copy the providers, variables, and outputs files from an existing BU
-cp infrastructure/example/virtual-machines/providers.tf  infrastructure/<bu-name>/virtual-machines/
-cp infrastructure/example/virtual-machines/variables.tf  infrastructure/<bu-name>/virtual-machines/
-cp infrastructure/example/virtual-machines/outputs.tf    infrastructure/<bu-name>/virtual-machines/
+cp infrastructure/bizapps/virtual-machines/providers.tf  infrastructure/<bu-name>/virtual-machines/
+cp infrastructure/bizapps/virtual-machines/variables.tf  infrastructure/<bu-name>/virtual-machines/
+cp infrastructure/bizapps/virtual-machines/outputs.tf    infrastructure/<bu-name>/virtual-machines/
 
 # 3. Create env/<tier>/<tier>.tfbackend and env/<tier>/<tier>.tfvars for each tier
 #    pointing to the BU's Azure Storage Account and subscription
@@ -305,13 +308,50 @@ ensure prod IDs are never accessible to test-environment jobs.
 
 ### OIDC authentication
 
-Workflows authenticate via OIDC — no client secrets are stored in GitHub.
-You need one Azure App Registration per Entra tenant with a service principal that
-has Contributor (or equivalent) access across all BU subscriptions in that tenant.
-Configure federated credentials for each GitHub environment
-(`repo:<org>/<repo>:environment:infra-nonprod` and `...:infra-prod`). See the
-[Microsoft docs on workload identity federation](https://learn.microsoft.com/en-us/entra/workload-id/workload-identity-federation-create-trust)
-for setup.
+Workflows authenticate to Azure via OIDC workload identity federation — no client
+secrets are stored in GitHub.
+
+#### 1. Create an App Registration
+
+Create one App Registration (and its service principal) per Entra tenant — one for
+`test`, one for `prod` if they live in different tenants.
+
+1. In the [Azure Portal](https://portal.azure.com), go to **Entra ID → App registrations → New registration**
+2. Name it (e.g. `sp-terraform-avm-azurevm-test`)
+3. Note the **Application (client) ID** and **Directory (tenant) ID** — these become
+   `AZURE_CLIENT_ID` and `AZURE_TENANT_ID` in GitHub
+
+#### 2. Add federated credentials
+
+On the App Registration, go to **Certificates & secrets → Federated credentials → Add credential**
+and add one credential per GitHub environment:
+
+| Field | Value |
+|-------|-------|
+| Federated credential scenario | `GitHub Actions deploying Azure resources` |
+| Organisation | your GitHub org or username |
+| Repository | `terraform-avm-azurevm` |
+| Entity type | `Environment` |
+| GitHub environment name | `test` (repeat for `prod`) |
+| Name | e.g. `github-env-test` |
+
+#### 3. Assign roles to the service principal
+
+The service principal needs the following role assignments. Assign them in
+**Azure Portal → Subscriptions / Resource Groups → Access control (IAM) → Add role assignment**,
+selecting the App Registration by name as the principal.
+
+| Scope | Role | Reason |
+|-------|------|--------|
+| Each BU subscription | `Contributor` | Create and manage all VM-related resources (vnets, NICs, VMs, etc.) |
+| Each pre-existing resource group where VMs are deployed (e.g. `rg-bizapps-vms`, `rg-science-vms`) | `Contributor` | Required to create resources inside the resource group |
+| Each pre-existing resource group referenced as a data source | `Reader` | Terraform reads the resource group details during plan; without this the plan fails with an authorisation error |
+| Storage Account used for Terraform remote state | `Storage Blob Data Contributor` | Read and write state files; required in addition to Contributor on the storage account's resource group when `ARM_USE_AZUREAD = true` |
+
+> **Note:** If you grant `Contributor` at the subscription level, it inherits down to all
+> resource groups in that subscription — you do not need to add separate resource group
+> assignments in that case. Per-resource-group assignments are only needed when the
+> service principal's subscription-level access is restricted.
 
 ---
 
