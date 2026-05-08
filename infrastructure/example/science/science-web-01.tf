@@ -4,6 +4,7 @@
 # Research & Science web VM — data analysis, lab tooling, research compute.
 # Copy this file and rename it to add another VM for the Science team.
 # All values specific to this VM are defined in the locals block below.
+#
 ###############################################################################
 
 locals {
