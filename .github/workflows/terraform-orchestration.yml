@@ -65,8 +65,8 @@ on:
       tfvars_filepath:
         required: true
         type: string
-      subscription_id:
-        description: "Azure subscription ID for this BU and tier"
+      bu:
+        description: "Business unit name, used to look up the subscription ID from vars.SUBSCRIPTION_MAP"
         required: true
         type: string
 
@@ -76,7 +76,7 @@ jobs:
     secrets: inherit
     with:
       environment: ${{ inputs.environment }}
-      subscription_id: ${{ inputs.subscription_id }}
+      bu: ${{ inputs.bu }}
       plan_filename: ${{ inputs.plan_filename }}
       working_directory: ${{ inputs.working_directory }}
       terraform_version: ${{ inputs.terraform_version }}
@@ -92,7 +92,7 @@ jobs:
     secrets: inherit
     with:
       environment: ${{ inputs.environment }}
-      subscription_id: ${{ inputs.subscription_id }}
+      bu: ${{ inputs.bu }}
       plan_filename: ${{ inputs.plan_filename }}
       working_directory: ${{ inputs.working_directory }}
       terraform_version: ${{ inputs.terraform_version }}

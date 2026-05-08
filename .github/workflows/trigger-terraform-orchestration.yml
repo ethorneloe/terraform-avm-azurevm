@@ -106,7 +106,7 @@ jobs:
     concurrency: ${{ matrix.directory }}-${{ github.event_name == 'pull_request' && 'test' || 'prod' }}
     with:
       environment: "${{ github.event_name == 'pull_request' && 'test' || 'prod' }}"
-      subscription_id: "${{ fromJson(vars.SUBSCRIPTION_MAP)[matrix.bu] }}"
+      bu: "${{ matrix.bu }}"
       run_tf_apply: true
       working_directory: "./${{ matrix.directory }}"
       tfbackend_filepath: "./env/${{ github.event_name == 'pull_request' && 'test' || 'prod' }}/${{ github.event_name == 'pull_request' && 'test' || 'prod' }}.tfbackend"
